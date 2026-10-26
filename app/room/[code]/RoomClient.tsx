@@ -34,6 +34,8 @@ export function RoomClient({ code }: { code: string }) {
   const [dice, setDice] = useState<{ sides: number; value: number } | null>(null);
   const [coin, setCoin] = useState<"heads" | "tails" | null>(null);
   const [resultsDismissed, setResultsDismissed] = useState(false);
+  const [watchMode, setWatchMode] = useState(false);
+  const [watchResolved, setWatchResolved] = useState(false);
 
   useEffect(() => {
     // A new game clears the previous result screen.
@@ -43,18 +45,42 @@ export function RoomClient({ code }: { code: string }) {
   // Read persisted identity only after mount so server and client agree.
   useEffect(() => {
     setName(getSavedName());
+    setWatchMode(new URLSearchParams(window.location.search).get("watch") === "1");
+    setWatchResolved(true);
   }, []);
 
   const inLobby = room?.state.phase === "lobby";
   const isPlayer = Boolean(me);
 
-  // Auto-join once we know who we are and the table still has room. If the
-  // saved name is already taken at this table (two Daves, or a second tab in
-  // local mode) ask for a different one instead of silently creating a clone.
+  const isSpectator = Boolean(
+    room?.state.spectators.some((sp) => sp.id === meId),
+  );
+
+  // Take a seat — or, if the table is full / already running / they asked to
+  // watch, sit in the spectator rows instead of forcing a name prompt.
   useEffect(() => {
-    if (!room || !meId || isPlayer) return;
-    if (!inLobby) return;
+    if (!watchResolved || !room || !meId || isPlayer || isSpectator) return;
+
     const stored = getSavedName();
+    const full = room.state.players.length >= room.state.maxPlayers;
+
+    if (!inLobby || full) {
+      dispatch({
+        type: "spectate",
+        spectatorId: meId,
+        name: stored || "Spectator",
+      });
+      return;
+    }
+    if (watchMode) {
+      dispatch({
+        type: "spectate",
+        spectatorId: meId,
+        name: stored || "Spectator",
+      });
+      return;
+    }
+
     const taken = room.state.players.some(
       (p) => p.name.trim().toLowerCase() === stored.trim().toLowerCase(),
     );
@@ -63,7 +89,16 @@ export function RoomClient({ code }: { code: string }) {
       return;
     }
     dispatch({ type: "join", playerId: meId, name: stored });
-  }, [dispatch, inLobby, isPlayer, meId, room]);
+  }, [
+    dispatch,
+    inLobby,
+    isPlayer,
+    isSpectator,
+    meId,
+    room,
+    watchMode,
+    watchResolved,
+  ]);
 
   useEffect(() => {
     if (!room || !meId) return;
@@ -180,9 +215,26 @@ export function RoomClient({ code }: { code: string }) {
         </button>
       </header>
 
-      {!isPlayer && !inLobby && (
-        <div className="mb-3 rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-[11px] font-bold text-sky-300">
-          You are watching this table — changes are read-only.
+      {!isPlayer && (
+        <div className="mb-3 flex items-center justify-between gap-2 rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-2">
+          <span className="text-[11px] font-bold text-sky-300">
+            👁 Watching — read-only
+          </span>
+          {inLobby && room.state.players.length < room.state.maxPlayers && (
+            <button
+              onClick={() => {
+                setWatchMode(false);
+                dispatch({
+                  type: "leave",
+                  playerId: meId,
+                });
+                setGateOpen(true);
+              }}
+              className="rounded-lg bg-sky-500/20 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-sky-200"
+            >
+              Take a seat
+            </button>
+          )}
         </div>
       )}
 
@@ -197,6 +249,13 @@ export function RoomClient({ code }: { code: string }) {
           onStart={() => dispatch({ type: "start", byId: meId })}
           onMode={(mode) => dispatch({ type: "setMode", mode })}
           onLife={(life) => dispatch({ type: "setStartingLife", life })}
+          onMaxPlayers={(max) =>
+            dispatch({ type: "setMaxPlayers", byId: meId, max })
+          }
+          onTakeSeat={() => {
+            setWatchMode(false);
+            setGateOpen(true);
+          }}
           onKick={(playerId) => dispatch({ type: "kick", byId: meId, playerId })}
           onOpenPlayer={setSheetId}
           onCopy={copyCode}
@@ -464,10 +523,12 @@ function LobbyView({
   onStart,
   onMode,
   onLife,
+  onMaxPlayers,
   onKick,
   onOpenPlayer,
   onCopy,
   copied,
+  onTakeSeat,
 }: {
   state: RoomState;
   players: PlayerState[];
@@ -477,12 +538,27 @@ function LobbyView({
   onStart: () => void;
   onMode: (mode: GameMode) => void;
   onLife: (life: number) => void;
+  onMaxPlayers: (max: number) => void;
   onKick: (playerId: string) => void;
   onOpenPlayer: (playerId: string) => void;
   onCopy: () => void;
   copied: boolean;
+  onTakeSeat: () => void;
 }) {
   const modes: GameMode[] = ["commander", "planechase", "archenemy", "kingdom"];
+  const meta = MODE_META[state.mode];
+  const [lifeDraft, setLifeDraft] = useState("");
+  const seatsLeft = state.maxPlayers - players.length;
+  const amWatching = state.spectators.some((sp) => sp.id === meId);
+  const lifeIsFixed = state.mode === "archenemy";
+
+  const commitLife = () => {
+    const value = Number.parseInt(lifeDraft, 10);
+    if (Number.isFinite(value) && value > 0) {
+      onLife(Math.min(999, value));
+      setLifeDraft("");
+    }
+  };
 
   return (
     <div className="space-y-3">
@@ -491,7 +567,9 @@ function LobbyView({
           <h2 className="text-sm font-extrabold uppercase tracking-wider text-slate-300">
             At the table
           </h2>
-          <Badge tone="mana">{players.length} joined</Badge>
+          <Badge tone={seatsLeft === 0 ? "amber" : "mana"}>
+            {players.length} / {state.maxPlayers} seats
+          </Badge>
         </div>
 
         <div className="mt-3 space-y-1.5">
@@ -523,12 +601,49 @@ function LobbyView({
               )}
             </div>
           ))}
+
+          {players.length === 0 && (
+            <p className="py-3 text-center text-xs text-slate-500">
+              Nobody has sat down yet.
+            </p>
+          )}
         </div>
+
+        {state.spectators.length > 0 && (
+          <div className="mt-3 rounded-xl border border-sky-500/20 bg-sky-500/5 px-3 py-2">
+            <div className="text-[9px] font-black uppercase tracking-wider text-sky-400/80">
+              👁 Watching ({state.spectators.length})
+            </div>
+            <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5">
+              {state.spectators.map((sp) => (
+                <span key={sp.id} className="text-xs text-sky-200/80">
+                  {sp.name}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
 
         <button onClick={onCopy} className="btn btn-ghost mt-3 w-full py-2.5 text-xs">
           {copied ? "Link copied" : "Share the join link"}
         </button>
       </div>
+
+      {amWatching && (
+        <div className="card p-4 text-center">
+          <p className="text-sm font-bold text-slate-300">You are watching</p>
+          <p className="mt-1 text-[11px] text-slate-500">
+            {seatsLeft > 0
+              ? `${seatsLeft} seat${seatsLeft === 1 ? "" : "s"} still open.`
+              : "The table is full."}
+          </p>
+          {seatsLeft > 0 && (
+            <button onClick={onTakeSeat} className="btn btn-primary mt-3 w-full py-2.5 text-sm">
+              Take a seat instead
+            </button>
+          )}
+        </div>
+      )}
 
       {isHost ? (
         <>
@@ -563,8 +678,42 @@ function LobbyView({
               })}
             </div>
             <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
-              {MODE_META[state.mode].summary}
+              {meta.summary}
             </p>
+          </div>
+
+          <div className="card p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-extrabold uppercase tracking-wider text-slate-300">
+                  Player limit
+                </h2>
+                <p className="text-[10px] text-slate-500">
+                  {seatsLeft === 0
+                    ? "Full — latecomers join as spectators"
+                    : `${seatsLeft} seat${seatsLeft === 1 ? "" : "s"} left`}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => onMaxPlayers(state.maxPlayers - 1)}
+                  disabled={state.maxPlayers <= Math.max(meta.minPlayers, players.length)}
+                  className="btn h-9 w-9 rounded-lg bg-white/5 text-white disabled:opacity-30"
+                >
+                  −
+                </button>
+                <span className="tnum w-6 text-center text-xl font-black">
+                  {state.maxPlayers}
+                </span>
+                <button
+                  onClick={() => onMaxPlayers(state.maxPlayers + 1)}
+                  disabled={state.maxPlayers >= meta.maxPlayers}
+                  className="btn h-9 w-9 rounded-lg bg-white/5 text-white disabled:opacity-30"
+                >
+                  +
+                </button>
+              </div>
+            </div>
           </div>
 
           <div className="card p-4">
@@ -576,33 +725,74 @@ function LobbyView({
                 {state.startingLife}
               </span>
             </div>
-            <div className="mt-2 grid grid-cols-4 gap-2">
-              {[20, 30, 40, 60].map((preset) => (
-                <button
-                  key={preset}
-                  onClick={() => onLife(preset)}
-                  className={`btn py-2.5 text-sm ${
-                    state.startingLife === preset ? "btn-primary" : "btn-ghost"
-                  }`}
-                >
-                  {preset}
-                </button>
-              ))}
-            </div>
+
+            {lifeIsFixed ? (
+              <p className="mt-2 rounded-lg border border-orange-500/25 bg-orange-500/10 px-2.5 py-2 text-[11px] leading-snug text-orange-200/80">
+                Archenemy is fixed by the rules: 40 life for the archenemy,
+                20 each for the team.
+              </p>
+            ) : (
+              <>
+                <div className="mt-2 grid grid-cols-4 gap-2">
+                  {[20, 30, 40, 60].map((preset) => (
+                    <button
+                      key={preset}
+                      onClick={() => onLife(preset)}
+                      className={`btn py-2.5 text-sm ${
+                        state.startingLife === preset ? "btn-primary" : "btn-ghost"
+                      }`}
+                    >
+                      {preset}
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-2 flex gap-2">
+                  <input
+                    className="field tnum py-2 text-sm"
+                    inputMode="numeric"
+                    placeholder="Custom…"
+                    value={lifeDraft}
+                    onChange={(event) => setLifeDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") commitLife();
+                    }}
+                  />
+                  <button className="btn btn-ghost px-4 text-xs" onClick={commitLife}>
+                    Set
+                  </button>
+                </div>
+              </>
+            )}
+
+            {state.mode === "kingdom" && (
+              <p className="mt-2 text-[10px] leading-snug text-slate-500">
+                The King always starts on 50, whatever is set here.
+              </p>
+            )}
           </div>
 
-          <button onClick={onStart} className="btn btn-primary w-full py-4 text-base">
-            Start game
+          <button
+            onClick={onStart}
+            disabled={players.length < meta.minPlayers}
+            className="btn btn-primary w-full py-4 text-base"
+          >
+            {players.length < meta.minPlayers
+              ? `Need ${meta.minPlayers - players.length} more player${
+                  meta.minPlayers - players.length === 1 ? "" : "s"
+                }`
+              : "Start game"}
           </button>
         </>
       ) : (
-        <div className="card p-5 text-center">
-          <div className="mx-auto mb-2 h-6 w-6 animate-spin rounded-full border-2 border-line border-t-mana" />
-          <p className="text-sm font-bold text-slate-300">Waiting for the host</p>
-          <p className="mt-1 text-[11px] text-slate-500">
-            The table starts as soon as they hit go.
-          </p>
-        </div>
+        !amWatching && (
+          <div className="card p-5 text-center">
+            <div className="mx-auto mb-2 h-6 w-6 animate-spin rounded-full border-2 border-line border-t-mana" />
+            <p className="text-sm font-bold text-slate-300">Waiting for the host</p>
+            <p className="mt-1 text-[11px] text-slate-500">
+              The table starts as soon as they hit go.
+            </p>
+          </div>
+        )
       )}
     </div>
   );

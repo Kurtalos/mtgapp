@@ -86,6 +86,12 @@ export interface KingdomState {
   claims: Record<string, RoleId>;
 }
 
+export interface Spectator {
+  id: string;
+  name: string;
+  joinedAt: number;
+}
+
 export interface LogEntry {
   id: string;
   at: number;
@@ -102,6 +108,10 @@ export interface RoomState {
   startingLife: number;
   hostId: string;
   players: PlayerState[];
+  /** Hard cap on seated players. Spectators are not counted. */
+  maxPlayers: number;
+  /** People watching from the couch. Read-only, never part of the game. */
+  spectators: Spectator[];
   planechase: PlanechaseState;
   archenemy: ArchenemyState;
   kingdom: KingdomState;
@@ -126,6 +136,9 @@ export type ModeMeta = {
   tagline: string;
   players: string;
   defaultLife: number;
+  defaultMaxPlayers: number;
+  minPlayers: number;
+  maxPlayers: number;
   accent: string;
   summary: string;
 };
@@ -137,6 +150,9 @@ export const MODE_META: Record<GameMode, ModeMeta> = {
     tagline: "The classic",
     players: "2–8 players",
     defaultLife: 40,
+    defaultMaxPlayers: 4,
+    minPlayers: 2,
+    maxPlayers: 8,
     accent: "#a881ff",
     summary:
       "40 life, 21 commander damage from a single commander, and poison at 10.",
@@ -147,6 +163,9 @@ export const MODE_META: Record<GameMode, ModeMeta> = {
     tagline: "Chaos everywhere",
     players: "2–8 players",
     defaultLife: 40,
+    defaultMaxPlayers: 4,
+    minPlayers: 2,
+    maxPlayers: 8,
     accent: "#38bdf8",
     summary:
       "Shared planar deck and the planar die. Roll chaos, then planeswalk.",
@@ -157,6 +176,9 @@ export const MODE_META: Record<GameMode, ModeMeta> = {
     tagline: "One against many",
     players: "3–6 players",
     defaultLife: 20,
+    defaultMaxPlayers: 4,
+    minPlayers: 3,
+    maxPlayers: 6,
     accent: "#f97316",
     summary:
       "One player starts at 40 life with a scheme deck against everyone else on 20.",
@@ -165,10 +187,13 @@ export const MODE_META: Record<GameMode, ModeMeta> = {
     id: "kingdom",
     name: "Kingdoms",
     tagline: "Trust nobody",
-    players: "5–8 players",
+    players: "2–8 players",
     defaultLife: 40,
+    defaultMaxPlayers: 6,
+    minPlayers: 2,
+    maxPlayers: 8,
     accent: "#facc15",
     summary:
-      "Secret roles and asymmetric win conditions. The King is public and starts at 50.",
+      "The Treachery / Kingdoms variant: secret roles and asymmetric win conditions. The King is public and starts at 50.",
   },
 };

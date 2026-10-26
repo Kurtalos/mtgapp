@@ -15,6 +15,8 @@ function room(mode: GameMode, names = ["Host", "B", "C", "D", "E"]): RoomState {
     hostId: HOST,
     hostName: names[0],
     mode,
+    // Most tests want a big table regardless of the format default.
+    maxPlayers: 8,
   });
   names.slice(1).forEach((name, i) => {
     state = applyAction(state, { type: "join", playerId: `p_${i + 1}`, name });
@@ -341,5 +343,133 @@ describe("purity", () => {
       state = act(state, { type: "adjustLife", playerId: HOST, delta: 1 });
     }
     assert.ok(state.log.length <= 80);
+  });
+});
+
+describe("seats and spectators", () => {
+  it("refuses a seat once the player limit is reached", () => {
+    const state = createRoomState({
+      code: "FULL1",
+      hostId: HOST,
+      hostName: "Host",
+      mode: "commander",
+      maxPlayers: 2,
+    });
+    const withTwo = act(state, { type: "join", playerId: "p_1", name: "Second" });
+    assert.equal(withTwo.players.length, 2);
+
+    const withThree = act(withTwo, { type: "join", playerId: "p_2", name: "Third" });
+    assert.equal(withThree.players.length, 2, "third player must not get a seat");
+  });
+
+  it("lets extra people watch without joining the game", () => {
+    const state = createRoomState({
+      code: "WATCH",
+      hostId: HOST,
+      hostName: "Host",
+      mode: "commander",
+      maxPlayers: 2,
+    });
+    const seated = act(state, { type: "spectate", spectatorId: "s_1", name: "Couch" });
+    assert.equal(seated.spectators.length, 1);
+    assert.equal(seated.players.length, 1);
+    // Spectators never reach the win conditions.
+    assert.equal(seated.phase, "lobby");
+    assert.equal(seated.winners, null);
+  });
+
+  it("moves someone from watching to a seat when they join", () => {
+    let state = createRoomState({
+      code: "SWAP1",
+      hostId: HOST,
+      hostName: "Host",
+      mode: "commander",
+      maxPlayers: 4,
+    });
+    state = act(state, { type: "spectate", spectatorId: "p_1", name: "Late" });
+    assert.equal(state.spectators.length, 1);
+
+    state = act(state, { type: "join", playerId: "p_1", name: "Late" });
+    assert.equal(state.players.length, 2);
+    assert.equal(state.spectators.length, 0);
+  });
+
+  it("drops a spectator cleanly when they leave", () => {
+    let state = room("commander");
+    state = act(state, { type: "spectate", spectatorId: "s_9", name: "Watcher" });
+    assert.equal(state.spectators.length, 1);
+    state = act(state, { type: "leave", playerId: "s_9" });
+    assert.equal(state.spectators.length, 0);
+    // Leaving as a spectator must not remove a player.
+    assert.equal(state.players.length, 5);
+  });
+
+  it("only the host can change the player limit, and never below the seated count", () => {
+    const state = room("commander");
+    assert.equal(
+      act(state, { type: "setMaxPlayers", byId: "p_1", max: 2 }).maxPlayers,
+      8,
+    );
+
+    const shrunk = act(state, { type: "setMaxPlayers", byId: HOST, max: 2 });
+    assert.equal(shrunk.maxPlayers, 5, "cannot shrink below seated players");
+
+    const grown = act(state, { type: "setMaxPlayers", byId: HOST, max: 8 });
+    assert.equal(grown.maxPlayers, 8);
+
+    const overMax = act(state, { type: "setMaxPlayers", byId: HOST, max: 99 });
+    assert.equal(overMax.maxPlayers, 8, "clamped to the format maximum");
+  });
+
+  it("resets the seat cap and life total when the format changes", () => {
+    let state = room("commander");
+    state = act(state, { type: "setMaxPlayers", byId: HOST, max: 8 });
+    state = act(state, { type: "setStartingLife", life: 60 });
+    state = act(state, { type: "setMode", mode: "kingdom" });
+    assert.equal(state.maxPlayers, 6);
+    assert.equal(state.startingLife, 40);
+  });
+
+  it("honours a custom starting life total", () => {
+    const state = createRoomState({
+      code: "LIFE1",
+      hostId: HOST,
+      hostName: "Host",
+      mode: "commander",
+      startingLife: 25,
+    });
+    assert.equal(state.startingLife, 25);
+    assert.equal(state.players[0].life, 25);
+
+    const clamped = createRoomState({
+      code: "LIFE2",
+      hostId: HOST,
+      hostName: "Host",
+      mode: "commander",
+      startingLife: -5,
+    });
+    assert.equal(clamped.startingLife, 1);
+  });
+
+  it("still applies commander damage rules with a nonstandard life total", () => {
+    let state = createRoomState({
+      code: "LIFE3",
+      hostId: HOST,
+      hostName: "Host",
+      mode: "commander",
+      startingLife: 25,
+      maxPlayers: 4,
+    });
+    state = act(state, { type: "join", playerId: "p_1", name: "B" });
+    state = act(state, { type: "start", byId: HOST, seed: 3 });
+    for (let i = 0; i < 21; i++) {
+      state = act(state, {
+        type: "adjustCommanderDamage",
+        sourceId: HOST,
+        targetId: "p_1",
+        delta: 1,
+      });
+    }
+    assert.ok(player(state, "p_1").eliminated);
   });
 });

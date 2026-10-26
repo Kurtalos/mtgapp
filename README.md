@@ -4,6 +4,11 @@ A shared life counter for paper Magic. The host opens a table, reads out a
 five-character code, and everyone joins from their phone browser — no app
 install, no accounts.
 
+The host sets the format, the **player limit** and the **starting life total**
+when they create the table, and anyone who arrives late, or would rather just
+watch, joins as a **spectator** — read-only, not counted toward the limit, and
+visible to the host as "watching".
+
 Built for the four multiplayer formats our group actually plays:
 
 | Format | What it tracks |
@@ -99,11 +104,12 @@ supabase/schema.sql        one-paste database setup
 npm test
 ```
 
-35 tests cover the rules that are easy to get subtly wrong: commander damage
+43 tests cover the rules that are easy to get subtly wrong: commander damage
 accumulating per source rather than in total, poison at exactly ten, the planar
 die distribution, phenomenon skipping, role composition by table size, the
-Bandit/Knight/Assassin win conditions, and a Usurper taking the throne only when
-they land the killing blow themselves. The transport tests cover the
+Bandit/Knight/Assassin win conditions, a Usurper taking the throne only when
+they land the killing blow themselves, seat limits refusing an extra player,
+and spectators never reaching the win conditions. The transport tests cover the
 version-conflict path that two phones hit in the real world.
 
 ## Deployment
@@ -111,6 +117,15 @@ version-conflict path that two phones hit in the real world.
 Any Node host works. `npm run build && npm start` serves the production build on
 `PORT` (default 3000). Vercel needs nothing beyond the two environment
 variables.
+
+For a VPS, see **[DEPLOY.md](DEPLOY.md)** — sizing (a 1 vCPU / 2 GB box is
+plenty, and the reasoning is in there), Docker + Caddy, a plain Node + systemd
+install, firewall and verification steps. A `Dockerfile` and
+`docker-compose.yml` are included.
+
+One thing worth repeating: `NEXT_PUBLIC_*` values are compiled into the client
+bundle at build time, so changing your Supabase project means rebuilding the
+container, not just restarting it.
 
 ## Notes
 

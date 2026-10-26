@@ -26,6 +26,9 @@ export type RoomAction =
   | { type: "rename"; playerId: string; name: string }
   | { type: "setMode"; mode: GameMode }
   | { type: "setStartingLife"; life: number }
+  | { type: "setMaxPlayers"; byId: string; max: number }
+  | { type: "spectate"; spectatorId: string; name: string }
+  | { type: "unspectate"; spectatorId: string }
   | { type: "kick"; byId: string; playerId: string }
   | { type: "start"; byId: string; schemeNames?: string[]; seed?: number }
   | { type: "reset"; byId: string; seed?: number }
@@ -275,6 +278,7 @@ export function applyAction(state: RoomState, action: RoomAction): RoomState {
     case "join": {
       if (state.players.some((p) => p.id === action.playerId)) return state;
       if (state.phase !== "lobby") return state;
+      if (state.players.length >= state.maxPlayers) return state;
       const name = action.name.trim() || "Player";
       const seat = state.players.length;
       const life =
@@ -283,12 +287,43 @@ export function applyAction(state: RoomState, action: RoomAction): RoomState {
           : baseLifeFor(state.mode, state.startingLife);
       const next = {
         ...state,
+        // Seating them means they are no longer watching.
+        spectators: state.spectators.filter((sp) => sp.id !== action.playerId),
         players: [...state.players, blankPlayer(action.playerId, name, seat, life)],
       };
-      return log(next, "system", `${name} joined the table.`);
+      return log(next, "system", `${name} sat down.`);
+    }
+
+    case "spectate": {
+      const name = action.name.trim() || "Spectator";
+      if (state.spectators.some((sp) => sp.id === action.spectatorId)) return state;
+      if (state.players.some((p) => p.id === action.spectatorId)) return state;
+      const next = {
+        ...state,
+        spectators: [
+          ...state.spectators,
+          { id: action.spectatorId, name, joinedAt: Date.now() },
+        ],
+      };
+      return log(next, "system", `${name} is watching.`);
+    }
+
+    case "unspectate": {
+      const spectator = state.spectators.find((sp) => sp.id === action.spectatorId);
+      if (!spectator) return state;
+      return {
+        ...state,
+        spectators: state.spectators.filter((sp) => sp.id !== action.spectatorId),
+      };
     }
 
     case "leave": {
+      if (state.spectators.some((sp) => sp.id === action.playerId)) {
+        return {
+          ...state,
+          spectators: state.spectators.filter((sp) => sp.id !== action.playerId),
+        };
+      }
       if (state.players.length <= 1) return state;
       const player = state.players.find((p) => p.id === action.playerId);
       if (!player) return state;
@@ -316,16 +351,44 @@ export function applyAction(state: RoomState, action: RoomAction): RoomState {
     case "rename": {
       const name = action.name.trim().slice(0, 24);
       if (!name) return state;
+      if (state.spectators.some((sp) => sp.id === action.playerId)) {
+        return {
+          ...state,
+          spectators: state.spectators.map((sp) =>
+            sp.id === action.playerId ? { ...sp, name } : sp,
+          ),
+        };
+      }
       return withPlayer(state, action.playerId, (p) => ({ ...p, name }));
     }
 
     case "setMode": {
       if (state.phase !== "lobby") return state;
+      const meta = MODE_META[action.mode];
       return {
         ...state,
         mode: action.mode,
-        startingLife: MODE_META[action.mode].defaultLife,
+        startingLife: meta.defaultLife,
+        maxPlayers: Math.max(
+          meta.minPlayers,
+          Math.min(
+            meta.maxPlayers,
+            Math.max(state.players.length, meta.defaultMaxPlayers),
+          ),
+        ),
       };
+    }
+
+    case "setMaxPlayers": {
+      if (action.byId !== state.hostId) return state;
+      if (state.phase !== "lobby") return state;
+      const meta = MODE_META[state.mode];
+      const max = Math.max(
+        meta.minPlayers,
+        Math.min(meta.maxPlayers, Math.round(action.max)),
+      );
+      // Never shrink the cap below the people already sitting down.
+      return { ...state, maxPlayers: Math.max(max, state.players.length) };
     }
 
     case "setStartingLife": {

@@ -1,0 +1,25 @@
+services:
+  app:
+    build:
+      context: .
+      args:
+        # Baked into the client bundle at build time — change them and the
+        # image must be rebuilt, not just restarted.
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}
+    image: mana-table:latest
+    container_name: mana-table
+    restart: unless-stopped
+    ports:
+      # Bound to localhost: Caddy (or nginx) terminates TLS and proxies in.
+      - "127.0.0.1:3000:3000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 512M

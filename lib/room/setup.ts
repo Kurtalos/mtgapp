@@ -2,15 +2,30 @@ import type { GameMode, RoomState } from "@/lib/types";
 import { MODE_META } from "@/lib/types";
 import { baseLifeFor, blankPlayer } from "./reducer";
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, Math.round(value)));
+}
+
 export function createRoomState(options: {
   code: string;
   hostId: string;
   hostName: string;
   mode: GameMode;
   startingLife?: number;
+  maxPlayers?: number;
 }): RoomState {
   const { code, hostId, hostName, mode } = options;
-  const startingLife = options.startingLife ?? MODE_META[mode].defaultLife;
+  const meta = MODE_META[mode];
+  const startingLife = clamp(
+    options.startingLife ?? meta.defaultLife,
+    1,
+    999,
+  );
+  const maxPlayers = clamp(
+    options.maxPlayers ?? meta.defaultMaxPlayers,
+    meta.minPlayers,
+    meta.maxPlayers,
+  );
   const now = Date.now();
 
   return {
@@ -20,6 +35,8 @@ export function createRoomState(options: {
     startingLife,
     hostId,
     players: [blankPlayer(hostId, hostName, 0, baseLifeFor(mode, startingLife))],
+    maxPlayers,
+    spectators: [],
     planechase: {
       deck: [],
       current: null,
