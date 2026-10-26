@@ -17,6 +17,21 @@ Built for the four multiplayer formats our group actually plays:
 | **Planechase** | Shared planar deck, the planar die (3 blank / 1 chaos / 2 planeswalk), chaos prompts, planar controller, planeswalk with phenomenon skipping |
 | **Archenemy** | Archenemy on 40 vs the team on 20, scheme deck, ongoing vs one-shot schemes |
 | **Kingdoms** | Role setup window (choose how many of each role), secret roles dealt at random, a random class within each role, private tap-to-peek cards, asymmetric win conditions, the usurpation swap |
+| **Advanced Kingdoms** | The printed 21-card set for 5–9 players: deal from the official composition table, a real role card with its art and rules, Bandit reveal, and the printed win conditions |
+
+**Advanced Kingdoms** is the full printed expansion, not a reskin. Pick it in
+the lobby and the setup window runs the official composition table — 5 players
+gets one King, one Knight, two Assassins and a Renegade; 9 gets one King, two
+Knights, three Bandits and three Assassins. Each player is dealt a specific card
+from the printed set, so their private screen shows the actual card with its art
+and wording, and the win conditions come from the reference sheet rather than
+from memory.
+
+A handful of cards (The Cultist, The Champion, The Straw Man, The Sellsword and
+friends) depend on table history the app cannot see — who landed the killing
+blow, what another player's card says. Those are marked *host adjudicates*: the
+card is dealt and displayed, and the table finishes the job with **Call game**
+rather than the app inventing a result.
 
 Everything is editable from **`/admin`**: add planes, schemes and role classes as
 new sets come out. Anything you add is dealt alongside the bundled content, and

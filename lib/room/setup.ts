@@ -53,9 +53,12 @@ export function createRoomState(options: {
       resolved: [],
     },
     kingdom: {
+      variant: "classic",
       dealt: false,
-      setup: null as unknown as RoomState["kingdom"]["setup"],
+      // Empty counts mean "use the table-size default" — see dealRoles.
+      setup: { king: 0, knight: 0, bandit: 0, assassin: 0, renegade: 0, usurper: 0 },
       roles: {},
+      cards: {},
       classes: {},
       revealed: [],
       claims: {},
