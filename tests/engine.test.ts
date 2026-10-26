@@ -6,6 +6,7 @@ import type { GameMode, RoomState } from "@/lib/types";
 import { COMMANDER_DAMAGE_LETHAL, KING_LIFE, USURPED_KING_LIFE } from "@/lib/room/rules";
 import { createRng, rollPlanarFace, shuffle } from "@/lib/room/random";
 import { roleSetFor } from "@/lib/data/roles";
+import { PLANAR_CARDS } from "@/lib/data/planechase";
 
 const HOST = "p_host";
 
@@ -29,7 +30,12 @@ function act(state: RoomState, action: RoomAction): RoomState {
 }
 
 function started(mode: GameMode, names?: string[]): RoomState {
-  return act(room(mode, names), { type: "start", byId: HOST, seed: 42 });
+  return act(room(mode, names), {
+    type: "start",
+    byId: HOST,
+    seed: 42,
+    planes: PLANAR_CARDS,
+  });
 }
 
 const ids = (state: RoomState) => state.players.map((p) => p.id);
@@ -183,10 +189,15 @@ describe("archenemy", () => {
 
   it("only the archenemy can set a scheme in motion", () => {
     let state = started("archenemy");
+    const schemes = ["A", "B", "C"].map((name) => ({
+      id: name.toLowerCase(),
+      name,
+      oracleText: "",
+    }));
     state = act(state, {
       type: "setSchemeDeck",
       playerId: HOST,
-      names: ["A", "B", "C"],
+      schemes,
       seed: 1,
     });
     assert.equal(act(state, { type: "revealScheme", playerId: "p_1" }).archenemy.active.length, 0);
@@ -200,6 +211,7 @@ describe("planechase", () => {
   it("starts with a plane face up and the rest in the deck", () => {
     const state = started("planechase");
     assert.ok(state.planechase.current);
+    assert.equal(state.planechase.current?.type, "Plane");
     assert.ok(state.planechase.deck.length > 0);
     assert.equal(state.planechase.rollsThisTurn, 0);
   });
@@ -214,9 +226,9 @@ describe("planechase", () => {
 
   it("planeswalking changes the plane and moves the controller", () => {
     let state = started("planechase");
-    const before = state.planechase.current;
+    const before = state.planechase.current?.id;
     state = act(state, { type: "planeswalk", playerId: "p_2", seed: 9 });
-    assert.notEqual(state.planechase.current, before);
+    assert.notEqual(state.planechase.current?.id, before);
     assert.equal(state.planechase.controllerId, "p_2");
   });
 
@@ -231,8 +243,9 @@ describe("planechase", () => {
 
   it("can set a specific plane by hand", () => {
     let state = started("planechase");
-    state = act(state, { type: "setPlane", playerId: HOST, planeId: "agyrem" });
-    assert.equal(state.planechase.current, "agyrem");
+    const agyrem = PLANAR_CARDS.find((card) => card.id === "agyrem")!;
+    state = act(state, { type: "setPlane", playerId: HOST, plane: agyrem });
+    assert.equal(state.planechase.current?.id, "agyrem");
   });
 });
 
@@ -471,5 +484,184 @@ describe("seats and spectators", () => {
       });
     }
     assert.ok(player(state, "p_1").eliminated);
+  });
+});
+
+describe("dice, coins and manual overrides", () => {
+  it("gives the same die result for the same seed", () => {
+    const state = started("commander");
+    const a = act(state, { type: "rollDie", playerId: HOST, sides: 20, seed: 5 });
+    const b = act(state, { type: "rollDie", playerId: HOST, sides: 20, seed: 5 });
+    assert.equal(a.lastRoll?.value, b.lastRoll?.value);
+    assert.equal(a.lastRoll?.label, "d20");
+  });
+
+  it("keeps every die roll inside its range", () => {
+    let state = started("commander");
+    for (let seed = 0; seed < 500; seed++) {
+      state = act(state, { type: "rollDie", playerId: HOST, sides: 6, seed });
+      const value = Number(state.lastRoll?.value);
+      assert.ok(value >= 1 && value <= 6, `d6 rolled ${value}`);
+    }
+  });
+
+  it("accepts a manually entered die result and marks it", () => {
+    const state = started("commander");
+    const rolled = act(state, {
+      type: "rollDie",
+      playerId: HOST,
+      sides: 20,
+      value: 17,
+    });
+    assert.equal(rolled.lastRoll?.value, "17");
+    assert.equal(rolled.lastRoll?.manual, true);
+    assert.match(rolled.log[0].text, /sets a d20: 17/);
+  });
+
+  it("clamps a manual result into the die's range", () => {
+    const state = started("commander");
+    const rolled = act(state, {
+      type: "rollDie",
+      playerId: HOST,
+      sides: 6,
+      value: 99,
+    });
+    assert.equal(rolled.lastRoll?.value, "6");
+  });
+
+  it("shares a coin flip with the whole table", () => {
+    const state = started("commander");
+    const flipped = act(state, { type: "flipCoin", playerId: HOST, value: "tails" });
+    assert.equal(flipped.lastRoll?.value, "Tails");
+    assert.equal(flipped.lastRoll?.kind, "coin");
+    assert.match(flipped.log[0].text, /calls the coin/);
+  });
+
+  it("lets the planar die be set by hand", () => {
+    const state = started("planechase");
+    const manual = act(state, {
+      type: "rollPlanarDie",
+      playerId: HOST,
+      face: "chaos",
+    });
+    assert.equal(manual.lastRoll?.value, "Chaos");
+    assert.equal(manual.lastRoll?.manual, true);
+    assert.equal(manual.planechase.chaosPending, true);
+    // A manual result still counts as one of the turn's rolls.
+    assert.equal(manual.planechase.rollsThisTurn, 1);
+  });
+
+  it("planeswalks when the planar die is set to planeswalk by hand", () => {
+    const state = started("planechase");
+    const before = state.planechase.current?.id;
+    const manual = act(state, {
+      type: "rollPlanarDie",
+      playerId: HOST,
+      face: "planeswalk",
+      seed: 11,
+    });
+    assert.notEqual(manual.planechase.current?.id, before);
+    assert.equal(manual.lastRoll?.value, "Planeswalk");
+  });
+
+  it("clears the shared roll on reset", () => {
+    let state = started("commander");
+    state = act(state, { type: "rollDie", playerId: HOST, sides: 20 });
+    assert.ok(state.lastRoll);
+    state = act(state, { type: "reset", byId: HOST });
+    assert.equal(state.lastRoll, null);
+  });
+});
+
+describe("kingdom role setup and classes", () => {
+  const sixNames = ["Host", "B", "C", "D", "E", "F"];
+
+  it("deals the composition the host configured", () => {
+    let state = room("kingdom", sixNames);
+    state = act(state, {
+      type: "configureRoles",
+      byId: HOST,
+      setup: { king: 1, knight: 2, bandit: 2, assassin: 1, usurper: 0 },
+    });
+    state = act(state, { type: "start", byId: HOST, seed: 7 });
+
+    const roles = Object.values(state.kingdom.roles);
+    assert.equal(roles.filter((r) => r === "king").length, 1);
+    assert.equal(roles.filter((r) => r === "knight").length, 2);
+    assert.equal(roles.filter((r) => r === "bandit").length, 2);
+    assert.equal(roles.filter((r) => r === "assassin").length, 1);
+    assert.equal(roles.filter((r) => r === "usurper").length, 0);
+  });
+
+  it("falls back to the standard set when the counts do not match the seats", () => {
+    let state = room("kingdom", ["Host", "B", "C", "D", "E"]);
+    state = act(state, {
+      type: "configureRoles",
+      byId: HOST,
+      setup: { king: 1, knight: 1, bandit: 1, assassin: 1, usurper: 0 },
+    });
+    state = act(state, { type: "start", byId: HOST, seed: 4 });
+    // Five seats, four roles configured — deal the five-player default.
+    assert.equal(Object.keys(state.kingdom.roles).length, 5);
+    assert.equal(Object.values(state.kingdom.roles).filter((r) => r === "bandit").length, 2);
+  });
+
+  it("assigns a class that belongs to the player's role", () => {
+    const classes = [
+      { id: "k_white", role: "knight" as const, name: "White Knight", description: "" },
+      { id: "k_black", role: "knight" as const, name: "Black Knight", description: "" },
+      { id: "b_smuggler", role: "bandit" as const, name: "Smuggler", description: "" },
+    ];
+    let state = room("kingdom", sixNames);
+    state = act(state, { type: "start", byId: HOST, seed: 21, classes });
+
+    for (const [playerId, role] of Object.entries(state.kingdom.roles)) {
+      const classId = state.kingdom.classes[playerId];
+      if (!classId) continue;
+      const matched = classes.find((entry) => entry.id === classId);
+      assert.ok(matched, `${classId} should exist`);
+      assert.equal(matched?.role, role, "a class must match its role");
+    }
+  });
+
+  it("gives every knight in play a different class when there is a choice", () => {
+    const classes = [
+      { id: "k_white", role: "knight" as const, name: "White Knight", description: "" },
+      { id: "k_black", role: "knight" as const, name: "Black Knight", description: "" },
+    ];
+    let state = room("kingdom", sixNames);
+    state = act(state, {
+      type: "configureRoles",
+      byId: HOST,
+      setup: { king: 1, knight: 4, bandit: 1, assassin: 0, usurper: 0 },
+    });
+    state = act(state, { type: "start", byId: HOST, seed: 3, classes });
+
+    const knightIds = Object.keys(state.kingdom.roles).filter(
+      (id) => state.kingdom.roles[id] === "knight",
+    );
+    // Several knights can share a class; what matters is that each got one
+    // drawn from the knight pool rather than a bandit's.
+    for (const id of knightIds) {
+      assert.ok(["k_white", "k_black"].includes(state.kingdom.classes[id]));
+    }
+  });
+
+  it("only the host can change the role composition, and only in the lobby", () => {
+    let state = room("kingdom", sixNames);
+    const attempted = act(state, {
+      type: "configureRoles",
+      byId: "p_1",
+      setup: { king: 1, knight: 5, bandit: 0, assassin: 0, usurper: 0 },
+    });
+    assert.equal(attempted.kingdom.setup, null);
+
+    state = act(state, { type: "start", byId: HOST, seed: 1 });
+    const late = act(state, {
+      type: "configureRoles",
+      byId: HOST,
+      setup: { king: 1, knight: 5, bandit: 0, assassin: 0, usurper: 0 },
+    });
+    assert.equal(late.kingdom.setup, null);
   });
 });

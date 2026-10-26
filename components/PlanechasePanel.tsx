@@ -1,10 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { RoomState } from "@/lib/types";
+import type { PlanarFace, RoomState } from "@/lib/types";
 import type { RoomAction } from "@/lib/room/reducer";
 import { createRng, randomSeed, rollPlanarFace } from "@/lib/room/random";
-import { PLANAR_CARDS } from "@/lib/data/planechase";
+import { planesOf } from "@/lib/content";
+import { useContent } from "@/lib/useContent";
 import { cardArtFor } from "@/lib/scryfall";
 import { usePlaneArt } from "@/lib/useCardArt";
 import { Badge, Modal } from "./ui";
@@ -26,35 +27,44 @@ export function PlanechasePanel({
   canAct: boolean;
   myId: string;
 }) {
+  const content = useContent();
+  const allPlanes = useMemo(() => planesOf(content), [content]);
   const planeArt = usePlaneArt();
   const [rolling, setRolling] = useState(false);
   const [lastFace, setLastFace] = useState<"blank" | "chaos" | "planeswalk" | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [manualOpen, setManualOpen] = useState(false);
 
-  const plane = PLANAR_CARDS.find((card) => card.id === state.planechase.current);
-  const art = plane ? cardArtFor(planeArt, plane.name) : null;
+  const plane = state.planechase.current;
+  const art = plane?.image
+    ? { image: plane.image, name: plane.name, typeLine: "", oracleText: "" }
+    : plane
+      ? cardArtFor(planeArt, plane.name)
+      : null;
   const rolls = state.planechase.rollsThisTurn;
   // First roll each turn is free, then {1}, {2}, {3}…
   const nextCost = Math.max(0, rolls);
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    const planes = PLANAR_CARDS.filter((card) => card.type === "Plane");
-    if (!needle) return planes;
-    return planes.filter((card) => card.name.toLowerCase().includes(needle));
-  }, [query]);
+    if (!needle) return allPlanes;
+    return allPlanes.filter((card) => card.name.toLowerCase().includes(needle));
+  }, [allPlanes, query]);
 
-  const roll = () => {
-    if (!canAct || rolling) return;
-    const seed = randomSeed();
-    const face = rollPlanarFace(createRng(seed));
+  const commitRoll = (seed: number, manual?: PlanarFace) => {
+    const face = manual ?? rollPlanarFace(createRng(seed));
     setLastFace(face);
     setRolling(true);
     window.setTimeout(() => {
-      dispatch({ type: "rollPlanarDie", playerId: myId, seed });
+      dispatch({ type: "rollPlanarDie", playerId: myId, seed, face: manual });
       setRolling(false);
-    }, 520);
+    }, manual ? 120 : 520);
+  };
+
+  const roll = () => {
+    if (!canAct || rolling) return;
+    commitRoll(randomSeed());
   };
 
   return (
@@ -168,6 +178,37 @@ export function PlanechasePanel({
         </button>
       </div>
 
+      <div className="flex items-center justify-between">
+        <button
+          onClick={() => setManualOpen((value) => !value)}
+          className="text-[10px] font-bold uppercase tracking-wider text-slate-500 hover:text-white"
+        >
+          {manualOpen ? "Hide manual result" : "Die landed off the table?"}
+        </button>
+        <span className="text-[10px] text-slate-600">click a face to log it</span>
+      </div>
+
+      {manualOpen && (
+        <div className="grid grid-cols-3 gap-2">
+          {(
+            [
+              { face: "blank" as PlanarFace, label: "Blank" },
+              { face: "chaos" as PlanarFace, label: "Chaos" },
+              { face: "planeswalk" as PlanarFace, label: "Planeswalk" },
+            ]
+          ).map((option) => (
+            <button
+              key={option.face}
+              disabled={!canAct || rolling}
+              onClick={() => commitRoll(randomSeed(), option.face)}
+              className="btn btn-ghost py-2 text-[11px] font-black uppercase tracking-wider disabled:opacity-40"
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="flex items-center justify-between text-[10px] text-slate-500">
         <span>
           Rolls this turn: <b className="text-slate-300">{rolls}</b>
@@ -179,7 +220,12 @@ export function PlanechasePanel({
           )}
         </span>
         <button
-          onClick={() => dispatch({ type: "planeswalk", playerId: myId })}
+          onClick={() =>
+            dispatch({
+              type: "planeswalk",
+              playerId: myId,
+            })
+          }
           disabled={!canAct}
           className="font-black uppercase tracking-wider text-sky-400 disabled:opacity-40"
         >
@@ -199,11 +245,11 @@ export function PlanechasePanel({
             <button
               key={card.id}
               onClick={() => {
-                dispatch({ type: "setPlane", playerId: myId, planeId: card.id });
+                dispatch({ type: "setPlane", playerId: myId, plane: card });
                 setPickerOpen(false);
               }}
               className={`w-full rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-white/5 ${
-                card.id === state.planechase.current
+                card.id === plane?.id
                   ? "bg-sky-500/15 font-bold text-sky-300"
                   : "text-slate-300"
               }`}
@@ -214,12 +260,15 @@ export function PlanechasePanel({
           {filtered.length === 0 && (
             <p className="py-6 text-center text-sm text-slate-500">No planes match.</p>
           )}
+          <p className="px-3 pt-2 text-[10px] text-slate-600">
+            {allPlanes.length} planes available · add more in the admin panel
+          </p>
         </div>
         <div className="mt-3 flex items-center justify-between border-t border-line pt-3">
           <Badge tone="info">{state.planechase.deck.length} in deck</Badge>
           <button
             onClick={() => {
-              dispatch({ type: "resetPlanarDeck" });
+              dispatch({ type: "resetPlanarDeck", planes: content.planes });
               setPickerOpen(false);
             }}
             className="text-[11px] font-bold uppercase tracking-wider text-slate-400 hover:text-white"

@@ -16,7 +16,12 @@ Built for the four multiplayer formats our group actually plays:
 | **Commander** | 40 life, 21 commander damage per opponent, 10 poison, commander tax, energy/experience, last-one-standing |
 | **Planechase** | Shared planar deck, the planar die (3 blank / 1 chaos / 2 planeswalk), chaos prompts, planar controller, planeswalk with phenomenon skipping |
 | **Archenemy** | Archenemy on 40 vs the team on 20, scheme deck, ongoing vs one-shot schemes |
-| **Kingdoms** | Secret roles (King, Knight, Bandit ×2, Assassin, Usurper), private role cards, asymmetric win conditions, the usurpation swap |
+| **Kingdoms** | Role setup window (choose how many of each role), secret roles dealt at random, a random class within each role, private tap-to-peek cards, asymmetric win conditions, the usurpation swap |
+
+Everything is editable from **`/admin`**: add planes, schemes and role classes as
+new sets come out. Anything you add is dealt alongside the bundled content, and
+because a running game keeps its own copy of the cards it was dealt, editing
+content can never disturb a table that is mid-game.
 
 ## Running it
 
@@ -82,6 +87,11 @@ A tap is never silently dropped and the table never desyncs.
 `Math.random`. Randomness (shuffles, the planar die) is seeded and passed in,
 so every phone computes the identical result and the whole engine is testable.
 
+**Shared dice.** Die, coin and planar-die results live in the room document, so
+the whole table sees the same roll instead of it existing only on the phone that
+made it. Every roll can also be entered by hand — the die that went under the
+sofa, the coin you flipped physically — and the log records that it was manual.
+
 **A backend that fits in the app.** `app/api/rt/**` serves the rooms, and
 `lib/server/` holds the two pieces behind it: a file store that writes each room
 atomically and enforces the version compare-and-set, and an in-memory hub that
@@ -101,8 +111,10 @@ keeps the repository small and avoids redistributing copyrighted artwork.
 ```
 app/
   page.tsx                 create / join a table
+  admin/                   content admin: planes, schemes, role classes
   room/[code]/               the table itself
   api/rt/rooms/            the bundled backend (create, load, save, SSE)
+  api/content/             custom game content for the admin panel
 components/                player tiles, sheets, per-format panels
 lib/
   room/reducer.ts          the whole rules engine (pure)
@@ -123,12 +135,13 @@ supabase/schema.sql        one-paste database setup
 npm test
 ```
 
-51 tests cover the rules that are easy to get subtly wrong: commander damage
+69 tests cover the rules that are easy to get subtly wrong: commander damage
 accumulating per source rather than in total, poison at exactly ten, the planar
 die distribution, phenomenon skipping, role composition by table size, the
 Bandit/Knight/Assassin win conditions, a Usurper taking the throne only when
 they land the killing blow themselves, seat limits refusing an extra player,
-and spectators never reaching the win conditions. The transport and store tests
+spectators never reaching the win conditions, role compositions chosen in the
+setup window, and classes always matching their role. The transport and store tests
 cover the version-conflict path two phones hit in the real world: ten
 simultaneous writes from the same starting version, of which exactly one may
 win.
@@ -138,6 +151,23 @@ win.
 Any Node host works. `npm run build && npm start` serves the production build on
 `PORT` (default 3000). Vercel needs nothing beyond the two environment
 variables.
+
+**Measured capacity** (`npm run loadtest`, production build, 4 simultaneous
+games of 8 players = 32 live connections, 20 seconds of continuous play):
+
+```
+Writes          2080 (96.8/s)
+Write latency   p50 8.2ms · p95 24.5ms · max 64.4ms
+Server memory   131 MB → 135 MB
+Errors          0
+```
+
+Four times the load you asked for, using about 4 MB more than idle. Run the same
+script against your own box before deciding you need a bigger one:
+
+```bash
+node scripts/loadtest.mjs --url http://localhost:3000 --rooms 4 --players 8
+```
 
 For a VPS, see **[DEPLOY.md](DEPLOY.md)** — sizing (1 vCPU / 2 GB is plenty, and
 the reasoning is in there), Docker + Caddy, a plain Node + systemd install,

@@ -17,6 +17,10 @@ export const GAME_MODES: GameMode[] = [
 
 export type Phase = "lobby" | "playing" | "finished";
 
+// Card shapes live in lib/content; imported here for the state that embeds them.
+import type { PlaneCard, RoleClass, SchemeCard } from "@/lib/content";
+export type { RoleClass };
+
 export type RoleId =
   | "king"
   | "knight"
@@ -50,12 +54,18 @@ export interface PlayerState {
 }
 
 export interface PlanechaseState {
-  /** Card ids remaining in the planar deck, index 0 is the top. */
-  deck: string[];
+  /**
+   * Cards remaining in the planar deck, index 0 is the top.
+   *
+   * Full card objects rather than ids on purpose: a game holds its own copy,
+   * so the admin panel can add or edit planes without reaching into a table
+   * that is already being played.
+   */
+  deck: PlaneCard[];
   /** The face-up plane, if the game has started. */
-  current: string | null;
+  current: PlaneCard | null;
   /** Cards revealed and then put on the bottom of the deck. */
-  bottom: string[];
+  bottom: PlaneCard[];
   /** Player who last rolled the planeswalk symbol (owns planar choices). */
   controllerId: string | null;
   /** True after a chaos roll until it is acknowledged. */
@@ -66,20 +76,27 @@ export interface PlanechaseState {
 
 export interface ArchenemyState {
   archenemyId: string | null;
-  /** Scheme names, index 0 is the top of the scheme deck. */
-  deck: string[];
+  /** Scheme cards, index 0 is the top of the scheme deck. */
+  deck: SchemeCard[];
   /** Ongoing schemes currently set in motion. */
-  active: string[];
+  active: SchemeCard[];
   /** The scheme most recently set in motion (for the reveal animation). */
-  lastRevealed: string | null;
-  /** Names of schemes that have finished resolving. */
+  lastRevealed: SchemeCard | null;
+  /** Schemes that have finished resolving. */
   resolved: string[];
 }
 
 export interface KingdomState {
   dealt: boolean;
+  /**
+   * How many of each role are in play, chosen in the setup window.
+   * A count of 0 means the role is not in this game.
+   */
+  setup: Record<RoleId, number>;
   /** Player id -> role. Undefined until roles are dealt. */
   roles: Record<string, RoleId>;
+  /** Player id -> class id, picked at random inside their role. */
+  classes: Record<string, string>;
   /** Player ids whose role is public knowledge. */
   revealed: string[];
   /** Player ids that have claimed a role out loud (social layer, not rules). */
@@ -90,6 +107,29 @@ export interface Spectator {
   id: string;
   name: string;
   joinedAt: number;
+}
+
+export type RollKind = "die" | "coin" | "planar";
+
+/**
+ * The most recent roll, shared with the whole table.
+ *
+ * Rolls used to be local state inside one phone, which meant the result only
+ * existed where it happened. Putting the last roll in the room document lets
+ * every player see it, and lets the host correct a die that landed under the
+ * sofa by entering the result by hand.
+ */
+export interface RollResult {
+  kind: RollKind;
+  /** Short name for display: "d20", "Coin", "Planar die". */
+  label: string;
+  /** Display form of the result: "17", "Heads", "Chaos". */
+  value: string;
+  sides: number | null;
+  byId: string;
+  at: number;
+  /** True when a human entered the result rather than the app rolling it. */
+  manual: boolean;
 }
 
 export interface LogEntry {
@@ -116,6 +156,8 @@ export interface RoomState {
   archenemy: ArchenemyState;
   kingdom: KingdomState;
   log: LogEntry[];
+  /** Most recent dice, coin or planar roll, shared with everyone. */
+  lastRoll: RollResult | null;
   /** Populated when the game ends. */
   winners: string[] | null;
   createdAt: number;

@@ -7,9 +7,11 @@ import {
   MODE_META,
   type GameMode,
   type PlayerState,
+  type RollResult,
   type RoomState,
 } from "@/lib/types";
 import { useRoom } from "@/lib/useRoom";
+import { useContent } from "@/lib/useContent";
 import { getSavedName, saveName } from "@/lib/identity";
 import { PlayerTile } from "@/components/PlayerTile";
 import { PlayerSheet } from "@/components/PlayerSheet";
@@ -23,6 +25,7 @@ type Tab = "table" | "mode" | "log";
 export function RoomClient({ code }: { code: string }) {
   const router = useRouter();
   const { status, room, me, meId, isHost, dispatch, onlineIds } = useRoom(code);
+  const content = useContent();
 
   const [name, setName] = useState("");
   const [gateOpen, setGateOpen] = useState(false);
@@ -31,8 +34,8 @@ export function RoomClient({ code }: { code: string }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
-  const [dice, setDice] = useState<{ sides: number; value: number } | null>(null);
-  const [coin, setCoin] = useState<"heads" | "tails" | null>(null);
+  const [manualOpen, setManualOpen] = useState(false);
+  const [manualValue, setManualValue] = useState("");
   const [resultsDismissed, setResultsDismissed] = useState(false);
   const [watchMode, setWatchMode] = useState(false);
   const [watchResolved, setWatchResolved] = useState(false);
@@ -246,7 +249,17 @@ export function RoomClient({ code }: { code: string }) {
           meId={meId}
           isHost={isHost}
           onlineIds={onlineIds}
-          onStart={() => dispatch({ type: "start", byId: meId })}
+          onStart={() => {
+            // Hand the engine its content so a game keeps its own copy of the
+            // cards it was dealt, whatever an admin does later.
+            dispatch({
+              type: "start",
+              byId: meId,
+              planes: content.planes,
+              schemes: content.schemes,
+              classes: content.classes,
+            });
+          }}
           onMode={(mode) => dispatch({ type: "setMode", mode })}
           onLife={(life) => dispatch({ type: "setStartingLife", life })}
           onMaxPlayers={(max) =>
@@ -452,46 +465,108 @@ export function RoomClient({ code }: { code: string }) {
 
       <Modal open={toolsOpen} onClose={() => setToolsOpen(false)} title="Dice & coin">
         <div className="space-y-4">
+          <p className="rounded-lg border border-line bg-surface-2 px-2.5 py-2 text-[10px] leading-snug text-slate-500">
+            Rolls are shared with the whole table. Landed under the sofa? Enter
+            the result by hand instead.
+          </p>
+
           <div>
             <div className="label">Coin</div>
             <div className="flex items-center gap-2">
               <button
-                onClick={() => setCoin(Math.random() > 0.5 ? "heads" : "tails")}
-                className="btn btn-ghost flex-1 py-3 text-sm uppercase"
+                onClick={() => dispatch({ type: "flipCoin", playerId: meId })}
+                className="btn btn-primary flex-1 py-3 text-sm uppercase"
               >
                 Flip
               </button>
               <div className="tnum flex h-12 min-w-24 items-center justify-center rounded-xl bg-amber/15 px-4 text-sm font-black uppercase text-amber">
-                {coin ?? "—"}
+                {state.lastRoll?.kind === "coin" ? state.lastRoll.value : "—"}
               </div>
             </div>
+            <div className="mt-1.5 grid grid-cols-2 gap-2">
+              {(["heads", "tails"] as const).map((face) => (
+                <button
+                  key={face}
+                  onClick={() =>
+                    dispatch({ type: "flipCoin", playerId: meId, value: face })
+                  }
+                  className="btn btn-ghost py-1.5 text-[10px] uppercase"
+                >
+                  It landed {face}
+                </button>
+              ))}
+            </div>
           </div>
+
           <div>
             <div className="label">Dice</div>
             <div className="grid grid-cols-6 gap-1.5">
               {[4, 6, 8, 10, 12, 20].map((sides) => (
                 <button
                   key={sides}
-                  onClick={() =>
-                    setDice({
-                      sides,
-                      value: Math.floor(Math.random() * sides) + 1,
-                    })
-                  }
+                  onClick={() => dispatch({ type: "rollDie", playerId: meId, sides })}
                   className={`btn py-2 text-xs ${
-                    dice?.sides === sides ? "bg-violet text-black" : "btn-ghost"
+                    state.lastRoll?.kind === "die" && state.lastRoll.sides === sides
+                      ? "bg-violet text-black"
+                      : "btn-ghost"
                   }`}
                 >
                   d{sides}
                 </button>
               ))}
             </div>
-            {dice && (
-              <div className="animate-pop mt-3 text-center">
-                <div className="tnum text-5xl font-black text-violet">{dice.value}</div>
-                <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
-                  d{dice.sides}
+          </div>
+
+          {state.lastRoll && state.lastRoll.kind !== "planar" && (
+            <div className="animate-pop rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-center">
+              <div className="tnum text-5xl font-black text-violet">
+                {state.lastRoll.value}
+              </div>
+              <div className="mt-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                {state.lastRoll.label}
+                {state.lastRoll.manual ? " · entered by hand" : ""}
+              </div>
+            </div>
+          )}
+
+          <div className="border-t border-line pt-3">
+            <button
+              onClick={() => setManualOpen((value) => !value)}
+              className="text-[11px] font-bold uppercase tracking-wider text-slate-500 hover:text-white"
+            >
+              {manualOpen ? "Hide override" : "Override a result"}
+            </button>
+            {manualOpen && (
+              <div className="mt-2 space-y-2">
+                <div className="flex gap-2">
+                  <input
+                    className="field tnum py-2 text-sm"
+                    inputMode="numeric"
+                    placeholder={`e.g. 17`}
+                    value={manualValue}
+                    onChange={(event) => setManualValue(event.target.value)}
+                  />
+                  <button
+                    className="btn btn-ghost px-3 text-xs"
+                    onClick={() => {
+                      const value = Number.parseInt(manualValue, 10);
+                      if (!Number.isFinite(value)) return;
+                      dispatch({
+                        type: "rollDie",
+                        playerId: meId,
+                        sides: Math.max(value, 2),
+                        value,
+                      });
+                      setManualValue("");
+                    }}
+                  >
+                    Log it
+                  </button>
                 </div>
+                <p className="text-[10px] text-slate-600">
+                  Logs the number as a d{manualValue || "20"} result so everyone
+                  sees it.
+                </p>
               </div>
             )}
           </div>
@@ -852,6 +927,8 @@ function TableTab({
         )}
       </div>
 
+      {state.lastRoll && <RollBanner roll={state.lastRoll} />}
+
       <div className="rounded-xl border border-line bg-surface-2 px-3 py-2.5 text-[11px] text-slate-400">
         <span className="font-black uppercase tracking-wider text-slate-500">
           Alive
@@ -874,6 +951,24 @@ function TableTab({
             </span>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+function RollBanner({ roll }: { roll: RollResult }) {
+  const who = roll.byId ? "rolled" : "";
+  const icons: Record<string, string> = { die: "🎲", coin: "🪙", planar: "🌀" };
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-violet/30 bg-violet/10 px-3 py-2.5">
+      <span className="text-lg">{icons[roll.kind] ?? "🎲"}</span>
+      <div className="min-w-0 flex-1">
+        <div className="text-[9px] font-black uppercase tracking-wider text-violet/80">
+          {roll.label} {who} {roll.manual ? "· entered by hand" : ""}
+        </div>
+        <div className="tnum text-lg font-black leading-tight text-white">
+          {roll.value}
+        </div>
       </div>
     </div>
   );

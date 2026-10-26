@@ -203,6 +203,50 @@ sudo certbot --nginx -d mtg.example.com
 
 ---
 
+## How much can one box handle?
+
+Measured rather than guessed. This is the production build, running four
+simultaneous eight-player games (32 live connections) with a life total changing
+every ~300 ms on every phone — far busier than a real table, where nobody taps
+ten times a second:
+
+```
+Writes          2080 (96.8/s)
+Write latency   p50 8.2ms · p95 24.5ms · max 64.4ms
+Server memory   131 MB → 135 MB
+Open streams    32, zero errors
+```
+
+So the "3 or 4 games with 2–8 players" case uses about **4 MB above idle**. When
+your box is up, run the same test against it:
+
+```bash
+node scripts/loadtest.mjs --url http://localhost:3000 --rooms 4 --players 8 --pid $(pgrep -f next-server | head -1)
+```
+
+Raise `--rooms` until latency starts climbing; that is your real ceiling.
+
+## Admin panel
+
+`https://mtg.example.com/admin` lets you add planes, schemes and role classes.
+Set an `ADMIN_TOKEN` in the environment or the panel is open to anyone who finds
+the address:
+
+```bash
+# docker-compose.yml
+environment:
+  DATA_DIR: /app/.data
+  ADMIN_TOKEN: ${ADMIN_TOKEN}
+```
+
+```bash
+echo 'ADMIN_TOKEN=something-long' >> .env
+docker compose up -d
+```
+
+Content is written to `content.json` next to the rooms, so it survives restarts
+and is covered by the backup command below.
+
 ## Making sure it actually works
 
 1. Open the site. The badge under the join box should read **Self-hosted**.
@@ -210,6 +254,8 @@ sudo certbot --nginx -d mtg.example.com
    on the lobby screen forever, the event stream is being blocked — check the
    proxy buffering settings above.
 3. Move a life total on the phone and watch the laptop update instantly.
+4. Open `/admin`, add a plane, then start a Planechase game and search for it in
+   the "Change" picker.
 
 Quick backend check from the box:
 

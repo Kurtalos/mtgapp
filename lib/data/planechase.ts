@@ -4,6 +4,9 @@ export interface PlaneCard {
   type: "Plane" | "Phenomenon";
   oracleText: string;
   chaosText: string;
+  /** Set for planes added in the admin panel, or to override the fetched art. */
+  image?: string | null;
+  custom?: boolean;
 }
 
 export const PLANAR_CARDS: PlaneCard[] = [

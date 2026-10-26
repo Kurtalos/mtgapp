@@ -106,3 +106,75 @@ describe("room store", () => {
     }
   });
 });
+
+describe("content store", () => {
+  it("saves and reads custom content", async () => {
+    const { readContent, writeContent } = await import("@/lib/server/content-store");
+    await writeContent({
+      planes: [
+        {
+          id: "plane_custom",
+          name: "Custom Plane",
+          type: "Plane" as const,
+          oracleText: "Do a thing.",
+          chaosText: "Chaos: do another thing.",
+          custom: true,
+        },
+      ],
+      schemes: [],
+      classes: [],
+    });
+    const loaded = await readContent();
+    assert.equal(loaded.planes.length, 1);
+    assert.equal(loaded.planes[0].name, "Custom Plane");
+  });
+
+  it("returns empty content rather than throwing when nothing is saved", async () => {
+    process.env.DATA_DIR = await fs.mkdtemp(path.join(os.tmpdir(), "manatable-empty-"));
+    const { readContent } = await import("@/lib/server/content-store");
+    const loaded = await readContent();
+    assert.deepEqual(loaded, { planes: [], schemes: [], classes: [] });
+  });
+
+  it("rejects malformed payloads", async () => {
+    const { validateContent } = await import("@/lib/server/content-store");
+    assert.equal(validateContent(null), null);
+    assert.equal(validateContent({ planes: "nope" }), null);
+    assert.equal(validateContent({ planes: [], schemes: [], classes: [] })?.planes.length, 0);
+  });
+
+  it("drops entries with an unknown role", async () => {
+    const { validateContent } = await import("@/lib/server/content-store");
+    const result = validateContent({
+      planes: [],
+      schemes: [],
+      classes: [
+        { id: "a", role: "knight", name: "White Knight", description: "" },
+        { id: "b", role: "wizard", name: "Nope", description: "" },
+      ],
+    });
+    assert.equal(result?.classes.length, 1);
+    assert.equal(result?.classes[0].id, "a");
+  });
+
+  it("clamps absurd input instead of storing it", async () => {
+    const { validateContent } = await import("@/lib/server/content-store");
+    const result = validateContent({
+      planes: [
+        {
+          id: "x".repeat(200),
+          name: "N".repeat(500),
+          type: "Plane",
+          oracleText: "o".repeat(9000),
+          chaosText: "",
+        },
+      ],
+      schemes: [],
+      classes: [],
+    });
+    const plane = result!.planes[0];
+    assert.ok(plane.id.length <= 60);
+    assert.ok(plane.name.length <= 120);
+    assert.ok(plane.oracleText.length <= 2000);
+  });
+});

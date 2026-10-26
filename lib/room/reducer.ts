@@ -1,13 +1,15 @@
 import type {
   GameMode,
   LogEntry,
+  PlanarFace,
   PlayerState,
+  RoleClass,
   RoleId,
   RoomState,
 } from "@/lib/types";
 import { MODE_META } from "@/lib/types";
 import { roleSetFor } from "@/lib/data/roles";
-import { PLANAR_CARDS } from "@/lib/data/planechase";
+import type { PlaneCard, SchemeCard } from "@/lib/content";
 import { createRng, randomSeed, rollPlanarFace, shuffle, uid } from "./random";
 import {
   ARCHENEMY_LIFE,
@@ -30,7 +32,15 @@ export type RoomAction =
   | { type: "spectate"; spectatorId: string; name: string }
   | { type: "unspectate"; spectatorId: string }
   | { type: "kick"; byId: string; playerId: string }
-  | { type: "start"; byId: string; schemeNames?: string[]; seed?: number }
+  | {
+      type: "start";
+      byId: string;
+      seed?: number;
+      /** Content supplied by the client so the engine needs no catalog. */
+      planes?: PlaneCard[];
+      schemes?: SchemeCard[];
+      classes?: RoleClass[];
+    }
   | { type: "reset"; byId: string; seed?: number }
   | { type: "adjustLife"; playerId: string; delta: number; byPlayerId?: string }
   | { type: "setLife"; playerId: string; value: number }
@@ -45,19 +55,37 @@ export type RoomAction =
   | { type: "eliminate"; playerId: string }
   | { type: "revive"; playerId: string }
   // Planechase
-  | { type: "rollPlanarDie"; playerId: string; seed?: number }
+  | { type: "rollPlanarDie"; playerId: string; seed?: number; face?: PlanarFace }
+  | { type: "rollDie"; playerId: string; sides: number; seed?: number; value?: number }
+  | {
+      type: "flipCoin";
+      playerId: string;
+      seed?: number;
+      value?: "heads" | "tails";
+    }
+  | { type: "clearRoll" }
   | { type: "ackChaos"; playerId: string }
   | { type: "planeswalk"; playerId: string; seed?: number }
-  | { type: "setPlane"; playerId: string; planeId: string }
-  | { type: "resetPlanarDeck"; seed?: number }
+  | { type: "setPlane"; playerId: string; plane: PlaneCard }
+  | { type: "resetPlanarDeck"; seed?: number; planes?: PlaneCard[] }
   | { type: "newturn" }
   // Archenemy
   | { type: "setArchenemy"; playerId: string; archenemyId: string }
   | { type: "revealScheme"; playerId: string }
-  | { type: "resolveScheme"; playerId: string; name: string }
-  | { type: "setSchemeDeck"; playerId: string; names: string[]; seed?: number }
+  | { type: "resolveScheme"; playerId: string; schemeId: string; name: string }
+  | { type: "setSchemeDeck"; playerId: string; schemes: SchemeCard[]; seed?: number }
   // Kingdoms
-  | { type: "dealRoles"; byId: string; seed?: number }
+  | {
+      type: "dealRoles";
+      byId: string;
+      seed?: number;
+      classes?: RoleClass[];
+    }
+  | {
+      type: "configureRoles";
+      byId: string;
+      setup: Record<RoleId, number>;
+    }
   | { type: "revealRole"; playerId: string }
   | { type: "claimRole"; playerId: string; role: RoleId | null };
 
@@ -82,12 +110,16 @@ export function baseLifeFor(mode: GameMode, startingLife: number): number {
   return startingLife;
 }
 
-export function planardDeck(seed: number): string[] {
+/**
+ * Builds a planar deck from whatever content the client handed us, so planes
+ * added in the admin panel are dealt exactly like the bundled ones.
+ */
+export function planardDeck(seed: number, cards: PlaneCard[]): PlaneCard[] {
   const rng = createRng(seed);
-  const planes = PLANAR_CARDS.filter((c) => c.type === "Plane");
-  const phenomena = PLANAR_CARDS.filter((c) => c.type === "Phenomenon");
+  const planes = cards.filter((c) => c.type === "Plane");
+  const phenomena = cards.filter((c) => c.type === "Phenomenon");
   // Real planar decks are mostly planes with a handful of phenomena mixed in.
-  return shuffle([...planes, ...phenomena], rng).map((c) => c.id);
+  return shuffle([...planes, ...phenomena], rng);
 }
 
 function log(
@@ -187,21 +219,51 @@ function maybeUsurp(state: RoomState, kingId: string, byId?: string): RoomState 
   return next;
 }
 
-function dealRoles(state: RoomState, seed: number): RoomState {
+/**
+ * Assigns a role to every seat, then a random class inside that role.
+ *
+ * The composition comes from the host's setup window when they have used it,
+ * otherwise from the standard table-size defaults. If the configured counts do
+ * not match the number of seats we fall back to the defaults rather than
+ * quietly dealing a lopsided game.
+ */
+function dealRoles(
+  state: RoomState,
+  seed: number,
+  classes: RoleClass[] = [],
+): RoomState {
   const rng = createRng(seed);
   const seats = state.players.map((p) => p.id);
-  const roles = shuffle(roleSetFor(seats.length), rng);
+
+  const configured = rolesFromSetup(state.kingdom.setup);
+  const bag =
+    configured.length === seats.length ? configured : roleSetFor(seats.length);
+
+  const roles = shuffle(bag, rng);
   const assigned: Record<string, RoleId> = {};
+  const playerClasses: Record<string, string> = {};
+
   seats.forEach((id, i) => {
-    assigned[id] = roles[i] ?? "assassin";
+    const role = roles[i] ?? "assassin";
+    assigned[id] = role;
+
+    // Pick a class belonging to this role. No classes defined for it means no
+    // class, and the UI simply shows the role.
+    const pool = classes.filter((entry) => entry.role === role);
+    if (pool.length > 0) {
+      playerClasses[id] = pool[Math.floor(rng() * pool.length)].id;
+    }
   });
+
   const kingId = seats.find((id) => assigned[id] === "king") ?? null;
 
   let next: RoomState = {
     ...state,
     kingdom: {
+      ...state.kingdom,
       dealt: true,
       roles: assigned,
+      classes: playerClasses,
       revealed: kingId ? [kingId] : [],
       claims: {},
     },
@@ -215,12 +277,32 @@ function dealRoles(state: RoomState, seed: number): RoomState {
   return next;
 }
 
-function beginGame(state: RoomState, action: { seed?: number; schemeNames?: string[] }): RoomState {
+/** Expands {king: 1, bandit: 2, …} into the flat role bag to shuffle. */
+export function rolesFromSetup(setup: Record<RoleId, number> | null): RoleId[] {
+  if (!setup) return [];
+  const bag: RoleId[] = [];
+  for (const [role, count] of Object.entries(setup)) {
+    for (let i = 0; i < Math.max(0, Math.round(count)); i++) {
+      bag.push(role as RoleId);
+    }
+  }
+  return bag;
+}
+
+function beginGame(
+  state: RoomState,
+  action: {
+    seed?: number;
+    planes?: PlaneCard[];
+    schemes?: SchemeCard[];
+    classes?: RoleClass[];
+  },
+): RoomState {
   const seed = action.seed ?? randomSeed();
   let next: RoomState = { ...state, phase: "playing", winners: null };
 
   if (next.mode === "kingdom") {
-    next = dealRoles(next, seed);
+    next = dealRoles(next, seed, action.classes ?? []);
   }
 
   if (next.mode === "archenemy") {
@@ -233,12 +315,12 @@ function beginGame(state: RoomState, action: { seed?: number; schemeNames?: stri
         life: p.id === archId ? ARCHENEMY_LIFE : 20,
       })),
     };
-    if (action.schemeNames && action.schemeNames.length) {
+    if (action.schemes && action.schemes.length) {
       next = {
         ...next,
         archenemy: {
           ...next.archenemy,
-          deck: shuffle(action.schemeNames, createRng(seed)),
+          deck: shuffle(action.schemes, createRng(seed)),
         },
       };
     }
@@ -246,10 +328,8 @@ function beginGame(state: RoomState, action: { seed?: number; schemeNames?: stri
   }
 
   if (next.mode === "planechase") {
-    const deck = planardDeck(seed);
-    const firstPlaneIndex = deck.findIndex(
-      (id) => PLANAR_CARDS.find((c) => c.id === id)?.type === "Plane",
-    );
+    const deck = planardDeck(seed, action.planes ?? []);
+    const firstPlaneIndex = deck.findIndex((card) => card.type === "Plane");
     const currentIndex = firstPlaneIndex === -1 ? 0 : firstPlaneIndex;
     next = {
       ...next,
@@ -265,7 +345,7 @@ function beginGame(state: RoomState, action: { seed?: number; schemeNames?: stri
     next = log(
       next,
       "mode",
-      `Planeswalking begins on ${PLANAR_CARDS.find((c) => c.id === next.planechase.current)?.name ?? "an unknown plane"}.`,
+      `Planeswalking begins on ${next.planechase.current?.name ?? "an unknown plane"}.`,
     );
   }
 
@@ -424,8 +504,16 @@ export function applyAction(state: RoomState, action: RoomAction): RoomState {
         phase: "lobby",
         players,
         winners: null,
+        lastRoll: null,
         log: [],
-        kingdom: { dealt: false, roles: {}, revealed: [], claims: {} },
+        kingdom: {
+          ...state.kingdom,
+          dealt: false,
+          roles: {},
+          classes: {},
+          revealed: [],
+          claims: {},
+        },
         archenemy: {
           archenemyId: state.archenemy.archenemyId,
           deck: [],
@@ -543,8 +631,9 @@ export function applyAction(state: RoomState, action: RoomAction): RoomState {
     // ---------------------------------------------------------------- Planechase
     case "rollPlanarDie": {
       const seed = action.seed ?? randomSeed();
-      const face = rollPlanarFace(createRng(seed));
-      const plane = PLANAR_CARDS.find((c) => c.id === state.planechase.current);
+      const face = action.face ?? rollPlanarFace(createRng(seed));
+      const manual = Boolean(action.face);
+      const plane = state.planechase.current;
       let next: RoomState = {
         ...state,
         planechase: {
@@ -552,10 +641,25 @@ export function applyAction(state: RoomState, action: RoomAction): RoomState {
           rollsThisTurn: state.planechase.rollsThisTurn + 1,
           chaosPending: face === "chaos" ? true : state.planechase.chaosPending,
         },
+        lastRoll: {
+          kind: "planar",
+          label: "Planar die",
+          value:
+            face === "chaos" ? "Chaos" : face === "planeswalk" ? "Planeswalk" : "Blank",
+          sides: 6,
+          byId: action.playerId,
+          at: Date.now(),
+          manual,
+        },
       };
       const label =
         face === "blank" ? "Blank — nothing happens." : face === "chaos" ? "CHAOS!" : "PLANESWALK!";
-      next = log(next, "roll", `${playerName(next, action.playerId)} rolls the planar die: ${label}`, action.playerId);
+      next = log(
+        next,
+        "roll",
+        `${playerName(next, action.playerId)} ${manual ? "sets" : "rolls"} the planar die: ${label}`,
+        action.playerId,
+      );
 
       if (face === "planeswalk") {
         next = planeswalkTo(next, action.playerId, seed + 1);
@@ -577,13 +681,13 @@ export function applyAction(state: RoomState, action: RoomAction): RoomState {
     }
 
     case "setPlane": {
-      const card = PLANAR_CARDS.find((c) => c.id === action.planeId);
+      const card = action.plane as PlaneCard | undefined;
       if (!card) return state;
       const next: RoomState = {
         ...state,
         planechase: {
           ...state.planechase,
-          current: card.id,
+          current: card,
           chaosPending: false,
         },
       };
@@ -592,14 +696,14 @@ export function applyAction(state: RoomState, action: RoomAction): RoomState {
 
     case "resetPlanarDeck": {
       const seed = action.seed ?? randomSeed();
-      const deck = planardDeck(seed);
-      const current = deck.find((id) => PLANAR_CARDS.find((c) => c.id === id)?.type === "Plane") ?? deck[0];
+      const deck = planardDeck(seed, action.planes ?? []);
+      const current = deck.find((card) => card.type === "Plane") ?? deck[0];
       return log(
         {
           ...state,
           planechase: {
             ...state.planechase,
-            deck: deck.filter((id) => id !== current),
+            deck: deck.filter((card) => card.id !== current?.id),
             current,
             bottom: [],
             chaosPending: false,
@@ -615,6 +719,65 @@ export function applyAction(state: RoomState, action: RoomAction): RoomState {
         ...state,
         planechase: { ...state.planechase, rollsThisTurn: 0, chaosPending: false },
       };
+    }
+
+    case "rollDie": {
+      const sides = Math.max(2, Math.min(100, Math.round(action.sides)));
+      const seed = action.seed ?? randomSeed();
+      const rolled = Math.floor(createRng(seed)() * sides) + 1;
+      const value = action.value
+        ? Math.max(1, Math.min(sides, Math.round(action.value)))
+        : rolled;
+      const manual = action.value !== undefined;
+      let next: RoomState = {
+        ...state,
+        lastRoll: {
+          kind: "die",
+          label: `d${sides}`,
+          value: String(value),
+          sides,
+          byId: action.playerId,
+          at: Date.now(),
+          manual,
+        },
+      };
+      next = log(
+        next,
+        "roll",
+        `${playerName(next, action.playerId)} ${manual ? "sets" : "rolls"} a d${sides}: ${value}.`,
+        action.playerId,
+      );
+      return next;
+    }
+
+    case "flipCoin": {
+      const seed = action.seed ?? randomSeed();
+      const value: "heads" | "tails" =
+        action.value ?? (createRng(seed)() > 0.5 ? "heads" : "tails");
+      const manual = action.value !== undefined;
+      let next: RoomState = {
+        ...state,
+        lastRoll: {
+          kind: "coin",
+          label: "Coin",
+          value: value === "heads" ? "Heads" : "Tails",
+          sides: 2,
+          byId: action.playerId,
+          at: Date.now(),
+          manual,
+        },
+      };
+      next = log(
+        next,
+        "roll",
+        `${playerName(next, action.playerId)} ${manual ? "calls" : "flips"} the coin: ${value}.`,
+        action.playerId,
+      );
+      return next;
+    }
+
+    case "clearRoll": {
+      return { ...state, lastRoll: null };
     }
 
     // ---------------------------------------------------------------- Archenemy
@@ -633,7 +796,7 @@ export function applyAction(state: RoomState, action: RoomAction): RoomState {
         ...state,
         archenemy: {
           ...state.archenemy,
-          deck: shuffle(action.names, createRng(seed)),
+          deck: shuffle(action.schemes, createRng(seed)),
           lastRevealed: null,
         },
       };
@@ -652,7 +815,12 @@ export function applyAction(state: RoomState, action: RoomAction): RoomState {
           lastRevealed: top,
         },
       };
-      return log(next, "mode", `Scheme set in motion: ${top}.`, action.playerId);
+      return log(
+        next,
+        "mode",
+        `Scheme set in motion: ${top.name}.`,
+        action.playerId,
+      );
     }
 
     case "resolveScheme": {
@@ -660,19 +828,27 @@ export function applyAction(state: RoomState, action: RoomAction): RoomState {
         ...state,
         archenemy: {
           ...state.archenemy,
-          active: state.archenemy.active.filter((n) => n !== action.name),
-          resolved: [...state.archenemy.resolved, action.name],
+          active: state.archenemy.active.filter((card) => card.id !== action.schemeId),
+          resolved: [...state.archenemy.resolved, action.schemeId],
           lastRevealed:
-            state.archenemy.lastRevealed === action.name ? null : state.archenemy.lastRevealed,
+            state.archenemy.lastRevealed?.id === action.schemeId
+              ? null
+              : state.archenemy.lastRevealed,
         },
       };
       return log(next, "mode", `${action.name} is done.`, action.playerId);
     }
 
     // ---------------------------------------------------------------- Kingdoms
+    case "configureRoles": {
+      if (action.byId !== state.hostId) return state;
+      if (state.phase !== "lobby") return state;
+      return { ...state, kingdom: { ...state.kingdom, setup: action.setup } };
+    }
+
     case "dealRoles": {
       if (action.byId !== state.hostId) return state;
-      return dealRoles(state, action.seed ?? randomSeed());
+      return dealRoles(state, action.seed ?? randomSeed(), action.classes ?? []);
     }
 
     case "revealRole": {
@@ -695,19 +871,22 @@ export function applyAction(state: RoomState, action: RoomAction): RoomState {
   }
 }
 
-function planeswalkTo(state: RoomState, playerId: string, seed: number): RoomState {
+function planeswalkTo(
+  state: RoomState,
+  playerId: string,
+  seed: number,
+): RoomState {
   const rng = createRng(seed);
   let deck = state.planechase.deck.slice();
   let bottom = state.planechase.bottom.slice();
-  let current: string | null = null;
-  const seen: string[] = [];
+  let current: PlaneCard | null = null;
+  const seen: PlaneCard[] = [];
 
   while (deck.length > 0) {
     const [next, ...rest] = deck;
     deck = rest;
-    const card = PLANAR_CARDS.find((c) => c.id === next);
-    if (card?.type === "Plane") {
-      current = card.id;
+    if (next.type === "Plane") {
+      current = next;
       break;
     }
     seen.push(next);
@@ -717,17 +896,14 @@ function planeswalkTo(state: RoomState, playerId: string, seed: number): RoomSta
   bottom = [...bottom, ...shuffle(seen, rng)];
 
   if (!current) {
-    // Deck is empty of planes — reshuffle the discards back in.
-    const rebuilt = planardDeck(seed + 7);
-    const firstPlane = rebuilt.find(
-      (id) => PLANAR_CARDS.find((c) => c.id === id)?.type === "Plane",
-    );
-    current = firstPlane ?? null;
-    deck = rebuilt.filter((id) => id !== firstPlane);
+    // Deck is empty of planes — rebuild from every card we have seen.
+    const rebuilt = planardDeck(seed + 7, [...deck, ...state.planechase.deck]);
+    current = rebuilt.find((card) => card.type === "Plane") ?? null;
+    deck = rebuilt.filter((card) => card.id !== current?.id);
     bottom = [];
   }
 
-  const card = PLANAR_CARDS.find((c) => c.id === current);
+  const card = current;
   const next: RoomState = {
     ...state,
     planechase: {

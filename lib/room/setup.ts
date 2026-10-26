@@ -52,7 +52,14 @@ export function createRoomState(options: {
       lastRevealed: null,
       resolved: [],
     },
-    kingdom: { dealt: false, roles: {}, revealed: [], claims: {} },
+    kingdom: {
+      dealt: false,
+      setup: null as unknown as RoomState["kingdom"]["setup"],
+      roles: {},
+      classes: {},
+      revealed: [],
+      claims: {},
+    },
     log: [
       {
         id: "log_boot",
@@ -62,6 +69,7 @@ export function createRoomState(options: {
         kind: "system",
       },
     ],
+    lastRoll: null,
     winners: null,
     createdAt: now,
     updatedAt: now,
