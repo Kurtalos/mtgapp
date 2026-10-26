@@ -1,5 +1,9 @@
 # Deploying Mana Table on a VPS
 
+> **Starting from a bare Ubuntu server?** Follow **[INSTALL.md](INSTALL.md)**
+> instead — it is the same process written as a numbered, copy-paste checklist
+> with the failure modes called out. This file is the reference version.
+
 ## How big does the VPS need to be?
 
 Small. Genuinely small — and it is now the **only** thing you need to pay for.
@@ -133,8 +137,8 @@ cd /opt/mtgapp
 sudo npm ci
 sudo npm run build
 
-# Standalone output needs these two copied next to the server or you get a
-# page with no CSS and no images.
+# `next build` copies neither of these into .next/standalone. Miss this and you
+# get a working page with no CSS and no images.
 sudo cp -r public .next/standalone/public
 sudo cp -r .next/static .next/standalone/.next/static
 
@@ -229,20 +233,16 @@ Raise `--rooms` until latency starts climbing; that is your real ceiling.
 ## Admin panel
 
 `https://mtg.example.com/admin` lets you add planes, schemes and role classes.
-Set an `ADMIN_TOKEN` in the environment or the panel is open to anyone who finds
-the address:
+Set an `ADMIN_TOKEN` or the panel is open to anyone who finds the address:
 
 ```bash
-# docker-compose.yml
-environment:
-  DATA_DIR: /app/.data
-  ADMIN_TOKEN: ${ADMIN_TOKEN}
+cd mtgapp
+echo "ADMIN_TOKEN=$(openssl rand -hex 16)" > .env   # keep this somewhere safe
+docker compose up -d --build                        # or just `up -d` if already built
 ```
 
-```bash
-echo 'ADMIN_TOKEN=something-long' >> .env
-docker compose up -d
-```
+Compose already passes `ADMIN_TOKEN` through from `.env`, and `.dockerignore`
+keeps that file out of the image, so the token is never baked into a layer.
 
 Content is written to `content.json` next to the rooms, so it survives restarts
 and is covered by the backup command below.
@@ -271,9 +271,11 @@ curl -i http://127.0.0.1:3000/api/rt/rooms/ABCDE
 Everything is in one directory of small JSON files. Backing up is a tar:
 
 ```bash
-# Docker
-docker run --rm -v manatable_manatable-data:/data -v "$PWD:/backup" alpine \
-  tar czf /backup/manatable-$(date +%F).tar.gz -C /data .
+# Docker — this works whatever the compose project is called, which matters
+# because the volume is named <project>_manatable-data and the project name
+# comes from the directory you cloned into.
+cd mtgapp
+docker compose exec -T app tar czf - -C /app .data > ~/manatable-$(date +%F).tar.gz
 
 # systemd install
 sudo tar czf ~/manatable-$(date +%F).tar.gz -C /var/lib/mana-table .
