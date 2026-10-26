@@ -101,6 +101,12 @@ export interface KingdomState {
   revealed: string[];
   /** Player ids that have claimed a role out loud (social layer, not rules). */
   claims: Record<string, RoleId>;
+  /**
+   * Host override: show every role at the table. Useful when adjudicating a
+   * rules dispute or when a player drops out mid-game. Roles are hidden by the
+   * UI either way, never by the server.
+   */
+  revealAll: boolean;
 }
 
 export interface Spectator {
