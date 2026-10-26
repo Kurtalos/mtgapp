@@ -13,15 +13,16 @@ export interface PresencePlayer {
 /**
  * Storage + fan-out for a room. Two implementations:
  *
- *  - supabase — shared across devices, the real thing.
- *  - local    — browser only, synced between tabs, used when no database is
- *               configured so the app is never a blank screen.
+ *  - supabase   — shared across devices, if you already have a project.
+ *  - selfhosted — the small backend bundled with this app (the default).
+ *  - local      — browser only, synced between tabs, so the app is never a
+ *                 blank screen and a single tablet works with no server.
  *
  * Both speak the same optimistic-concurrency protocol, so no UI code needs to
  * know which one is underneath.
  */
 export interface RoomTransport {
-  kind: "cloud" | "local";
+  kind: "cloud" | "local" | "selfhosted";
   label: string;
   load(code: string): Promise<StoredRoom | null>;
   create(code: string, state: RoomState): Promise<SaveResult>;

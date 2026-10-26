@@ -4,9 +4,14 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MODE_META, type GameMode } from "@/lib/types";
 import { createRoomState } from "@/lib/room/setup";
-import { getTransport, generateRoomCode, normaliseCode } from "@/lib/transport";
+import {
+  backendChoice,
+  backendLabel,
+  getTransport,
+  generateRoomCode,
+  normaliseCode,
+} from "@/lib/transport";
 import { getPlayerId, getSavedName, saveName } from "@/lib/identity";
-import { isSupabaseConfigured } from "@/lib/supabase";
 import { Badge } from "@/components/ui";
 
 const MODES: GameMode[] = ["commander", "planechase", "archenemy", "kingdom"];
@@ -325,17 +330,17 @@ export default function Home() {
         <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
           <Badge tone="mana">No install</Badge>
           <Badge tone="neutral">No accounts</Badge>
-          <Badge tone={isSupabaseConfigured ? "violet" : "amber"}>
-            {isSupabaseConfigured ? "Cloud rooms" : "Local rooms"}
+          <Badge tone={backendChoice() === "local" ? "amber" : "violet"}>
+            {backendLabel()}
           </Badge>
         </div>
 
-        {!isSupabaseConfigured && (
+        {backendChoice() === "local" && (
           <p className="rounded-xl border border-amber/20 bg-amber/5 px-3 py-2.5 text-[11px] leading-relaxed text-amber/80">
-            Running without a database: rooms live in this browser only, and
-            sync between tabs. Add Supabase keys to{" "}
-            <code className="font-mono text-amber">.env.local</code> to play from
-            separate phones.
+            Local mode: rooms live in this browser only and sync between tabs.
+            Unset{" "}
+            <code className="font-mono text-amber">NEXT_PUBLIC_BACKEND</code> to
+            play from separate phones.
           </p>
         )}
       </div>

@@ -1,0 +1,70 @@
+import type { StoredRoom } from "@/lib/types";
+
+/**
+ * In-process fan-out for live rooms.
+ *
+ * Every open phone holds one Server-Sent Events stream. When a room changes the
+ * writer broadcasts the new document to everyone else watching it, and when a
+ * stream opens or closes we push the new presence list. This lives in memory
+ * because a room only matters while the table is playing — the durable copy is
+ * on disk.
+ *
+ * Single-process by design. If you ever run two instances behind a load
+ * balancer, this needs to become Redis pub/sub; the rest of the app does not.
+ */
+
+export interface Subscriber {
+  id: string;
+  playerId: string;
+  name: string;
+  send: (event: string, data: unknown) => void;
+}
+
+const rooms = new Map<string, Map<string, Subscriber>>();
+
+export function subscribe(code: string, subscriber: Subscriber): () => void {
+  const existing = rooms.get(code) ?? new Map<string, Subscriber>();
+  existing.set(subscriber.id, subscriber);
+  rooms.set(code, existing);
+  broadcastPresence(code);
+
+  return () => {
+    const current = rooms.get(code);
+    if (!current) return;
+    current.delete(subscriber.id);
+    if (current.size === 0) rooms.delete(code);
+    else broadcastPresence(code);
+  };
+}
+
+export function publish(code: string, room: StoredRoom) {
+  const current = rooms.get(code);
+  if (!current) return;
+  for (const subscriber of current.values()) {
+    subscriber.send("room", room);
+  }
+}
+
+export function presenceFor(code: string) {
+  const current = rooms.get(code);
+  if (!current) return [];
+  return Array.from(current.values()).map((subscriber) => ({
+    playerId: subscriber.playerId,
+    name: subscriber.name,
+    onlineAt: Date.now(),
+  }));
+}
+
+function broadcastPresence(code: string) {
+  const current = rooms.get(code);
+  if (!current) return;
+  const presence = presenceFor(code);
+  for (const subscriber of current.values()) {
+    subscriber.send("presence", presence);
+  }
+}
+
+/** Test seam. */
+export function resetHub() {
+  rooms.clear();
+}

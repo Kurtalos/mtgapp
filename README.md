@@ -25,34 +25,41 @@ npm install
 npm run dev      # http://localhost:3000
 ```
 
-That works with **no configuration at all**. Without database credentials the
-app runs in *local mode*: rooms live in your browser and sync between tabs, so
-you can open two tabs and play a full game against yourself. A badge on the
-home screen tells you which mode you are in.
+That works with **no configuration at all**, and no third-party services.
+Rooms are stored on the machine running the app (`./.data/rooms` by default) and
+pushed to every phone over Server-Sent Events. Nothing to sign up for, nothing
+to pause for inactivity, and nothing to pay for beyond the box it runs on.
 
-### Playing from separate phones
+A badge on the home screen tells you which backend is active. The three
+available are:
 
-Local mode only reaches one browser. To let your mates join from their own
-devices you need a shared backend. [Supabase](https://supabase.com) has a free
-tier that is more than enough for a playgroup.
+| Backend | What it does |
+| --- | --- |
+| **Self-hosted** (default) | Rooms on this server's disk. Play from any device. |
+| **Supabase** | Rooms in a Supabase project, if you already have one. |
+| **Local** | No server at all — rooms live in the browser and sync between tabs. |
 
-1. Create a project at supabase.com.
-2. Open **SQL Editor**, paste the whole of [`supabase/schema.sql`](supabase/schema.sql),
-   and run it. It creates one table, its policies, and registers it for Realtime.
-3. Go to **Project Settings → API** and copy the project URL and the `anon`
-   (or `publishable`) key.
-4. Create `.env.local` from the template:
+Force one with `NEXT_PUBLIC_BACKEND=selfhosted|supabase|local`. Local mode is
+handy for a single tablet at the table, or for working on the UI with no server
+involved.
 
-   ```bash
-   cp .env.example .env.local
-   ```
+### Using Supabase instead
 
-   ```dotenv
-   NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
-   ```
+Set `NEXT_PUBLIC_BACKEND=supabase`, add the two keys from **Project Settings →
+API** to `.env.local`, and run [`supabase/schema.sql`](supabase/schema.sql) once
+in the SQL editor (it creates the table, the policies, and registers it for
+Realtime).
 
-5. Restart `npm run dev`. The badge should now read **Cloud rooms**.
+```dotenv
+NEXT_PUBLIC_BACKEND=supabase
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+```
+
+Worth knowing before you choose it: **Supabase pauses free projects after seven
+days of low activity.** A playgroup that plays once a fortnight will find the
+project asleep every time they sit down, until someone opens the dashboard and
+hits Resume. That is the whole reason the self-hosted backend is the default.
 
 > The anon key is designed to be public — row level security is what protects
 > the data. Never put your `service_role` key in a `NEXT_PUBLIC_` variable.
@@ -75,6 +82,17 @@ A tap is never silently dropped and the table never desyncs.
 `Math.random`. Randomness (shuffles, the planar die) is seeded and passed in,
 so every phone computes the identical result and the whole engine is testable.
 
+**A backend that fits in the app.** `app/api/rt/**` serves the rooms, and
+`lib/server/` holds the two pieces behind it: a file store that writes each room
+atomically and enforces the version compare-and-set, and an in-memory hub that
+fans changes out to every open phone over SSE. No database, no ORM, no
+dependency — which is what keeps a $5 VPS honest. Room data is in `DATA_DIR`
+(`./.data/rooms` by default); deployments must keep that on a volume.
+
+**An interface in between.** `lib/transport/` defines one `RoomTransport` and
+three implementations — self-hosted, Supabase, and browser-local — so the UI
+never learns which backend it is talking to.
+
 **No bundled card art.** Plane and scheme images are pulled from the
 [Scryfall API](https://scryfall.com/docs/api) in the browser, cached in
 `localStorage` for a week, and degrade silently to text when offline. This
@@ -83,8 +101,8 @@ keeps the repository small and avoids redistributing copyrighted artwork.
 ```
 app/
   page.tsx                 create / join a table
-  room/[code]/page.tsx     server wrapper
-  room/[code]/RoomClient.tsx  the table itself
+  room/[code]/               the table itself
+  api/rt/rooms/            the bundled backend (create, load, save, SSE)
 components/                player tiles, sheets, per-format panels
 lib/
   room/reducer.ts          the whole rules engine (pure)
@@ -92,7 +110,8 @@ lib/
   room/random.ts           seeded PRNG + planar die
   data/planechase.ts       85 planes and phenomena with oracle text
   data/roles.ts            Kingdoms role metadata and composition
-  transport/               cloud (Supabase) and local implementations
+  server/                   file store (atomic writes, CAS) + SSE fan-out hub
+  transport/               self-hosted, Supabase and local implementations
   useRoom.ts               live room state + optimistic writes
 tests/                     engine and transport tests
 supabase/schema.sql        one-paste database setup
@@ -104,13 +123,15 @@ supabase/schema.sql        one-paste database setup
 npm test
 ```
 
-43 tests cover the rules that are easy to get subtly wrong: commander damage
+51 tests cover the rules that are easy to get subtly wrong: commander damage
 accumulating per source rather than in total, poison at exactly ten, the planar
 die distribution, phenomenon skipping, role composition by table size, the
 Bandit/Knight/Assassin win conditions, a Usurper taking the throne only when
 they land the killing blow themselves, seat limits refusing an extra player,
-and spectators never reaching the win conditions. The transport tests cover the
-version-conflict path that two phones hit in the real world.
+and spectators never reaching the win conditions. The transport and store tests
+cover the version-conflict path two phones hit in the real world: ten
+simultaneous writes from the same starting version, of which exactly one may
+win.
 
 ## Deployment
 
@@ -118,14 +139,14 @@ Any Node host works. `npm run build && npm start` serves the production build on
 `PORT` (default 3000). Vercel needs nothing beyond the two environment
 variables.
 
-For a VPS, see **[DEPLOY.md](DEPLOY.md)** — sizing (a 1 vCPU / 2 GB box is
-plenty, and the reasoning is in there), Docker + Caddy, a plain Node + systemd
-install, firewall and verification steps. A `Dockerfile` and
-`docker-compose.yml` are included.
+For a VPS, see **[DEPLOY.md](DEPLOY.md)** — sizing (1 vCPU / 2 GB is plenty, and
+the reasoning is in there), Docker + Caddy, a plain Node + systemd install,
+backups, firewall and verification steps. A `Dockerfile` and
+`docker-compose.yml` are included, complete with a volume for the room data.
 
-One thing worth repeating: `NEXT_PUBLIC_*` values are compiled into the client
-bundle at build time, so changing your Supabase project means rebuilding the
-container, not just restarting it.
+Two things worth repeating: keep `DATA_DIR` on a volume or a redeploy wipes the
+table, and run **one** instance — live updates are fanned out from the memory of
+the process that handled the write.
 
 ## Notes
 

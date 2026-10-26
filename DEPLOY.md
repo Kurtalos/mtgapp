@@ -2,23 +2,21 @@
 
 ## How big does the VPS need to be?
 
-Small. Genuinely small.
-
-The server does one job: send HTML and a bit of JSON to five phones. There is
-no database on the box — Supabase holds the rooms and does all the realtime
-fan-out, so the traffic that would normally be the expensive part never touches
-your server at all.
+Small. Genuinely small — and it is now the **only** thing you need to pay for.
+The app ships its own backend, so there is no Supabase project, no managed
+database, and nothing that can be paused for inactivity while your group is
+sitting down to play.
 
 | | Spec | Notes |
 | --- | --- | --- |
-| **Minimum** (build elsewhere, just run) | 1 vCPU · 512 MB RAM · 10 GB disk | Roughly 100 MB resident in practice |
+| **Minimum** (build elsewhere, just run) | 1 vCPU · 512 MB · 10 GB disk | ~100 MB resident in practice |
 | **Recommended** (build *and* run on the box) | **1 vCPU · 2 GB RAM · 20 GB disk** | `next build` is the memory-hungry part |
-| **Comfortable** (room for other projects) | 2 vCPU · 4 GB RAM · 40 GB disk | |
+| **Comfortable** (room for other projects) | 2 vCPU · 4 GB · 40 GB | |
 
 **The one thing that will bite you:** `npm run build` peaks around 0.8–1.2 GB of
-RAM. On a 1 GB box it will often get OOM-killed mid-build, which looks like a
-mysterious failure. Either give the box 2 GB, add swap, or build in Docker
-elsewhere and only run the image on the VPS.
+RAM. On a 1 GB box it often gets OOM-killed mid-build, which looks like a
+mysterious failure. Either give the box 2 GB, add swap, or build the image
+elsewhere and only run it here.
 
 Adding 2 GB of swap costs nothing and removes the problem entirely:
 
@@ -30,22 +28,24 @@ sudo swapon /swapfile
 echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 ```
 
-Any US$5 tier works — Hetzner CX22, DigitalOcean's basic droplet, Vultr, or a
-Lightsail instance. Ubuntu 24.04 LTS is a safe default.
+### Where to put it
 
-**Bandwidth** is a non-issue: a full five-player game is a few hundred kilobytes
-of JSON in total.
+You are in Perth, so a Perth or Sydney region is ideal. **BinaryLane** has a
+Perth datacentre and bills in AUD from about A$5/month. Vultr, DigitalOcean and
+Linode all have Sydney regions at roughly USD$5–6/month, and the extra 40 ms of
+latency to Sydney is genuinely irrelevant for a life counter. Any of them is
+fine — pick whichever dashboard you find least annoying.
 
-> Worth knowing: because everything this app needs is either static or on
-> Supabase, a free tier on Vercel, Fly.io or Render will also host it for $0.
-> A VPS makes sense if you want a box you control, a custom domain, or somewhere
-> to put other projects alongside it.
+Ubuntu 24.04 LTS is a safe default image.
+
+**Bandwidth** is a non-issue: a whole five-player game is a few hundred
+kilobytes of JSON, and card art is loaded from Scryfall's CDN, not your server.
 
 ---
 
 ## Option A — Docker + Caddy (recommended)
 
-Caddy gets you automatic HTTPS with a two-line config.
+Caddy gives you automatic HTTPS with a two-line config.
 
 ### 1. Point a domain at the box
 
@@ -66,26 +66,20 @@ git clone https://github.com/Kurtalos/mtgapp.git
 cd mtgapp
 ```
 
-### 4. Configure
-
-```bash
-cp .env.example .env
-nano .env        # NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY
-```
-
-These two values are compiled into the browser bundle. **Changing them requires
-a rebuild**, not just a restart — that is why they are passed as build args.
-
-### 5. Build and start
+### 4. Build and start
 
 ```bash
 docker compose up -d --build
 docker compose logs -f
 ```
 
+That is it. **No environment variables are required** — the bundled backend
+stores rooms on disk. The compose file mounts a named volume at `/app/.data` so
+your tables survive a redeploy.
+
 The app listens on `127.0.0.1:3000`.
 
-### 6. Put Caddy in front
+### 5. Put Caddy in front
 
 ```bash
 sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
@@ -107,8 +101,13 @@ mtg.example.com {
 sudo systemctl reload caddy
 ```
 
-Caddy fetches a certificate the moment the domain resolves. Done — the table is
-live at `https://mtg.example.com`.
+Caddy fetches a certificate once the domain resolves. The table is live.
+
+> **One Caddy detail matters here.** `encode gzip` is fine because Caddy does
+> not compress `text/event-stream`, so the live-updates stream still flushes
+> immediately. If you use nginx instead, the app already sends
+> `X-Accel-Buffering: no` to stop it buffering the stream — do not remove
+> `proxy_buffering off;` from your nginx config.
 
 **Updating later:**
 
@@ -121,18 +120,27 @@ docker compose up -d --build
 
 ## Option B — Node + systemd, no Docker
 
-Useful if you would rather not run containers on a small box.
+For people who would rather not run containers.
 
 ```bash
 # Node 22
 curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
 sudo apt install -y nodejs nginx
 
-git clone https://github.com/Kurtalos/mtgapp.git /opt/mtgapp
+sudo useradd -r -s /usr/sbin/nologin -d /opt/mtgapp manatable
+sudo git clone https://github.com/Kurtalos/mtgapp.git /opt/mtgapp
 cd /opt/mtgapp
-npm ci
-cp .env.example .env.local && nano .env.local   # add your Supabase keys
-npm run build
+sudo npm ci
+sudo npm run build
+
+# Standalone output needs these two copied next to the server or you get a
+# page with no CSS and no images.
+sudo cp -r public .next/standalone/public
+sudo cp -r .next/static .next/standalone/.next/static
+
+# Where rooms are stored.
+sudo mkdir -p /var/lib/mana-table
+sudo chown -R manatable:manatable /opt/mtgapp /var/lib/mana-table
 ```
 
 `/etc/systemd/system/mana-table.service`:
@@ -144,12 +152,13 @@ After=network.target
 
 [Service]
 Type=simple
-User=www-data
-WorkingDirectory=/opt/mtgapp
+User=manatable
+WorkingDirectory=/opt/mtgapp/.next/standalone
 Environment=NODE_ENV=production
 Environment=PORT=3000
 Environment=HOSTNAME=127.0.0.1
-ExecStart=/usr/bin/node /opt/mtgapp/.next/standalone/server.js
+Environment=DATA_DIR=/var/lib/mana-table
+ExecStart=/usr/bin/node server.js
 Restart=always
 RestartSec=3
 MemoryMax=512M
@@ -158,20 +167,12 @@ MemoryMax=512M
 WantedBy=multi-user.target
 ```
 
-The standalone build needs two things copied next to it, otherwise you get a
-page with no CSS and no images:
-
-```bash
-cp -r /opt/mtgapp/public /opt/mtgapp/.next/standalone/public
-cp -r /opt/mtgapp/.next/static /opt/mtgapp/.next/standalone/.next/static
-```
-
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now mana-table
 ```
 
-Then proxy it with nginx (`/etc/nginx/sites-available/mana-table`):
+nginx (`/etc/nginx/sites-available/mana-table`):
 
 ```nginx
 server {
@@ -184,6 +185,11 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+
+        # Required for the live-update stream, or it buffers and the table
+        # stops refreshing until the connection closes.
+        proxy_buffering off;
+        proxy_read_timeout 1h;
     }
 }
 ```
@@ -199,15 +205,48 @@ sudo certbot --nginx -d mtg.example.com
 
 ## Making sure it actually works
 
-1. Open the site. The badge under the join box should read **Cloud rooms**.
-   If it says **Local rooms**, the Supabase values were empty at build time.
-2. Create a table and join it from your phone on mobile data. If the phone
-   stays on the lobby screen, the WebSocket never connected — check that the
-   `rooms` table exists and is in the `supabase_realtime` publication
-   (`supabase/schema.sql` handles both).
-3. Move a life total on the phone and watch the laptop update.
+1. Open the site. The badge under the join box should read **Self-hosted**.
+2. Create a table and join it from your phone on mobile data. If the phone sits
+   on the lobby screen forever, the event stream is being blocked — check the
+   proxy buffering settings above.
+3. Move a life total on the phone and watch the laptop update instantly.
 
-## Firewall
+Quick backend check from the box:
+
+```bash
+curl -i http://127.0.0.1:3000/api/rt/rooms/ABCDE
+# 404 here is correct: the server is up and the room does not exist yet.
+```
+
+---
+
+## Backups
+
+Everything is in one directory of small JSON files. Backing up is a tar:
+
+```bash
+# Docker
+docker run --rm -v manatable_manatable-data:/data -v "$PWD:/backup" alpine \
+  tar czf /backup/manatable-$(date +%F).tar.gz -C /data .
+
+# systemd install
+sudo tar czf ~/manatable-$(date +%F).tar.gz -C /var/lib/mana-table .
+```
+
+Put that in a weekly cron and copy it off the box. Rooms older than seven days
+are pruned automatically, so the directory stays tiny.
+
+---
+
+## Two things to know
+
+**Run exactly one instance.** Live updates are fanned out from the memory of the
+process that handled the write. Two containers behind a load balancer would each
+know about half the connections, and a player would see updates from only some
+of the table. One box, one process — which is the whole design.
+
+**Do not expose port 3000 publicly.** It is bound to `127.0.0.1` in the compose
+file for that reason. TLS and the public port belong to Caddy.
 
 ```bash
 sudo ufw allow OpenSSH
@@ -215,11 +254,12 @@ sudo ufw allow 80,443/tcp
 sudo ufw enable
 ```
 
-Do **not** expose port 3000 publicly. In the compose file it is already bound to
-`127.0.0.1` for that reason.
+---
 
-## Backups
+## Using Supabase instead
 
-Nothing to back up on the VPS — it is stateless. Your game data lives in
-Supabase, which has its own backups. Worst case, a rebuild is `git pull` plus
-`docker compose up -d --build`.
+Still supported if you already have a project — set `NEXT_PUBLIC_BACKEND=supabase`
+plus the two keys in `.env.local`, and run `supabase/schema.sql`. Remember that
+Supabase pauses free projects after seven days of low activity, which is a poor
+fit for a group that plays a couple of times a month. The bundled backend has no
+such rule, which is why it is the default.

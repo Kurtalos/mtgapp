@@ -42,5 +42,8 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# room data written by the bundled backend
+/.data
+
 # editor / os cruft
 cmd.exe
