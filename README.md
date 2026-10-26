@@ -169,7 +169,9 @@ script against your own box before deciding you need a bigger one:
 node scripts/loadtest.mjs --url http://localhost:3000 --rooms 4 --players 8
 ```
 
-For a VPS, see **[DEPLOY.md](DEPLOY.md)** — sizing (1 vCPU / 2 GB is plenty, and
+For a VPS, start with **[INSTALL.md](INSTALL.md)** — a numbered, copy-paste
+walkthrough from a bare Ubuntu box to HTTPS. **[DEPLOY.md](DEPLOY.md)** is the
+reference version. — sizing (1 vCPU / 2 GB is plenty, and
 the reasoning is in there), Docker + Caddy, a plain Node + systemd install,
 backups, firewall and verification steps. A `Dockerfile` and
 `docker-compose.yml` are included, complete with a volume for the room data.

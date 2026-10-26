@@ -22,6 +22,8 @@ ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
 ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
 ENV NEXT_TELEMETRY_DISABLED=1
 
+# `next build` peaks around 0.8–1.2 GB of RAM. On a 1 GB box without swap the
+# kernel kills it and the build "mysteriously fails" — add swap first.
 RUN npm run build
 
 # ---------------------------------------------------------------------------
@@ -39,6 +41,9 @@ RUN addgroup -g 1001 -S nodejs \
  && adduser -S nextjs -u 1001 \
  && mkdir -p /app/.data && chown nextjs:nodejs /app/.data
 
+# `next build` copies neither of these into .next/standalone, so both have to
+# come across by hand. `public/` exists in the repo (it holds robots.txt);
+# without it this COPY fails with "not found".
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static

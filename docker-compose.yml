@@ -17,6 +17,9 @@ services:
       # Rooms are plain JSON files. Keep them on a volume or every redeploy
       # wipes the table mid-game.
       DATA_DIR: /app/.data
+      # Password for /admin. Compose reads it from .env in this directory.
+      # Leave it unset and the admin panel is open to anyone who finds it.
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
     volumes:
       - manatable-data:/app/.data
     healthcheck:
