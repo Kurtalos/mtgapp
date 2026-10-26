@@ -1,0 +1,237 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { MODE_META, type GameMode } from "@/lib/types";
+import { createRoomState } from "@/lib/room/setup";
+import { getTransport, generateRoomCode, normaliseCode } from "@/lib/transport";
+import { getPlayerId, getSavedName, saveName } from "@/lib/identity";
+import { isSupabaseConfigured } from "@/lib/supabase";
+import { Badge } from "@/components/ui";
+
+const MODES: GameMode[] = ["commander", "planechase", "archenemy", "kingdom"];
+
+export default function Home() {
+  const router = useRouter();
+
+  const [name, setName] = useState("");
+  const [mode, setMode] = useState<GameMode>("commander");
+  const [joinCode, setJoinCode] = useState("");
+  const [busy, setBusy] = useState<"create" | "join" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    setName(getSavedName());
+    setHydrated(true);
+  }, []);
+
+  const transport = getTransport();
+
+  const create = async () => {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      setError("Pick a name first — your mates need something to shout at.");
+      return;
+    }
+    setBusy("create");
+    setError(null);
+    saveName(trimmed);
+
+    try {
+      const playerId = getPlayerId();
+      for (let attempt = 0; attempt < 4; attempt++) {
+        const code = generateRoomCode();
+        const state = createRoomState({
+          code,
+          hostId: playerId,
+          hostName: trimmed,
+          mode,
+        });
+        const result = await transport.create(code, state);
+        if (result.ok) {
+          router.push(`/room/${code}`);
+          return;
+        }
+        if (result.room) continue; // code collision, try another
+
+        const detail = transport.describeError();
+        if (detail) {
+          setError(detail);
+          return;
+        }
+      }
+      setError("Could not open a table just now. Try again in a moment.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const join = async () => {
+    const code = normaliseCode(joinCode);
+    if (code.length < 4) {
+      setError("Room codes are five characters.");
+      return;
+    }
+    const trimmed = name.trim();
+    if (!trimmed) {
+      setError("Pick a name first.");
+      return;
+    }
+    setBusy("join");
+    setError(null);
+    saveName(trimmed);
+
+    try {
+      const found = await transport.load(code);
+      if (!found) {
+        const detail = transport.describeError();
+        setError(detail ?? `No table found with the code ${code}.`);
+        return;
+      }
+      router.push(`/room/${code}`);
+    } catch {
+      setError("Could not reach the table. Check your connection.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <main
+      className="mx-auto flex min-h-screen w-full max-w-md flex-col px-4 pb-10"
+      style={{ paddingTop: "calc(2.5rem + var(--sat))" }}
+    >
+      <header className="text-center">
+        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-mana/30 bg-mana/10 text-2xl">
+          🎴
+        </div>
+        <h1 className="text-4xl font-black leading-none tracking-tighter">
+          MANA<span className="text-mana">TABLE</span>
+        </h1>
+        <p className="mt-3 text-sm leading-relaxed text-slate-400">
+          A shared life counter for Commander, Planechase, Archenemy and
+          Kingdoms. Create a table, share the code, everyone joins from their
+          phone.
+        </p>
+      </header>
+
+      <div className="mt-6 space-y-4">
+        <div className="card p-4">
+          <label className="label" htmlFor="name">
+            Your name
+          </label>
+          <input
+            id="name"
+            className="field"
+            placeholder="Atraxa enjoyer"
+            value={name}
+            maxLength={24}
+            onChange={(event) => setName(event.target.value)}
+            autoComplete="nickname"
+          />
+
+          <div className="label mt-4">Table format</div>
+          <div className="grid grid-cols-2 gap-2">
+            {MODES.map((id) => {
+              const info = MODE_META[id];
+              const active = mode === id;
+              return (
+                <button
+                  key={id}
+                  onClick={() => setMode(id)}
+                  className={`rounded-xl border p-3 text-left transition-colors ${
+                    active
+                      ? "border-transparent bg-white/10"
+                      : "border-line bg-surface-2 hover:border-white/20"
+                  }`}
+                  style={
+                    active ? { boxShadow: `inset 0 0 0 2px ${info.accent}` } : undefined
+                  }
+                >
+                  <div
+                    className="text-sm font-black leading-tight"
+                    style={{ color: active ? info.accent : "#e5e9f2" }}
+                  >
+                    {info.name}
+                  </div>
+                  <div className="text-[10px] text-slate-500">{info.tagline}</div>
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+            {MODE_META[mode].summary}
+          </p>
+
+          <button
+            onClick={create}
+            disabled={busy !== null || !hydrated}
+            className="btn btn-primary mt-4 w-full py-4 text-base"
+          >
+            {busy === "create" ? "Opening table…" : "Create a table"}
+          </button>
+        </div>
+
+        <div className="card p-4">
+          <label className="label" htmlFor="code">
+            Join with a code
+          </label>
+          <div className="flex gap-2">
+            <input
+              id="code"
+              className="field tnum text-center text-lg font-black tracking-[0.35em] uppercase"
+              placeholder="ABCDE"
+              value={joinCode}
+              maxLength={8}
+              autoCapitalize="characters"
+              autoComplete="off"
+              spellCheck={false}
+              onChange={(event) => setJoinCode(normaliseCode(event.target.value))}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void join();
+              }}
+            />
+            <button
+              onClick={join}
+              disabled={busy !== null || !hydrated}
+              className="btn btn-ghost px-5"
+            >
+              {busy === "join" ? "…" : "Join"}
+            </button>
+          </div>
+        </div>
+
+        {error && (
+          <div className="animate-pop rounded-xl border border-danger/30 bg-danger/10 px-3 py-2.5 text-[12px] font-semibold text-danger">
+            {error}
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+          <Badge tone="mana">No install</Badge>
+          <Badge tone="neutral">No accounts</Badge>
+          <Badge tone={isSupabaseConfigured ? "violet" : "amber"}>
+            {isSupabaseConfigured ? "Cloud rooms" : "Local rooms"}
+          </Badge>
+        </div>
+
+        {!isSupabaseConfigured && (
+          <p className="rounded-xl border border-amber/20 bg-amber/5 px-3 py-2.5 text-[11px] leading-relaxed text-amber/80">
+            Running without a database: rooms live in this browser only, and
+            sync between tabs. Add Supabase keys to{" "}
+            <code className="font-mono text-amber">.env.local</code> to play from
+            separate phones.
+          </p>
+        )}
+      </div>
+
+      <footer className="mt-auto pt-8 text-center text-[10px] leading-relaxed text-slate-600">
+        Unofficial fan project. Not affiliated with Wizards of the Coast.
+        Card art, when shown, comes from the Scryfall API.
+      </footer>
+    </main>
+  );
+}
