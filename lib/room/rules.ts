@@ -109,6 +109,9 @@ export function computeOutcome(state: RoomState): string[] | null {
 }
 
 function computeKingdomOutcome(state: RoomState): string[] | null {
+  if (state.kingdom.variant === "advanced") {
+    return computeAdvancedOutcome(state);
+  }
   const roles = state.kingdom.roles;
   const king = state.players.find((p) => roles[p.id] === "king");
   const living = state.players.filter((p) => !p.eliminated);
@@ -156,4 +159,71 @@ function computeKingdomOutcome(state: RoomState): string[] | null {
 /** True when the given player may be targeted by a role swap. */
 export function isUsurper(state: RoomState, playerId: string): boolean {
   return state.kingdom.roles[playerId] === "usurper";
+}
+
+/**
+ * Advanced Kingdoms win conditions, transcribed from the reference sheet.
+ *
+ *   King     — victory when every Assassin, Bandit and Renegade is eliminated.
+ *   Knights  — victory when the King wins; defeat when the King is eliminated.
+ *   Assassins— victory when the King is eliminated.
+ *   Bandits  — victory when every non-Bandit is eliminated.
+ *   Renegades— "refer to the role card", so never decided here.
+ *
+ * Renegades (and cards such as The Cultist, which needs to know how many
+ * Cultist cards are in play) are deliberately left to the host: returning null
+ * keeps the game running rather than guessing at a result the app cannot see.
+ * The table ends those games with "Declare winner".
+ */
+function computeAdvancedOutcome(state: RoomState): string[] | null {
+  const roles = state.kingdom.roles;
+  const living = state.players.filter((p) => !p.eliminated);
+  const king = state.players.find((p) => roles[p.id] === "king");
+  if (!king) return null;
+
+  const byFamily = (family: RoleId) =>
+    living.filter((p) => roles[p.id] === family);
+
+  const livingAssassins = byFamily("assassin");
+  const livingBandits = byFamily("bandit");
+  const livingRenegades = [
+    ...byFamily("renegade"),
+    ...byFamily("usurper"),
+  ];
+  const nonBandits = living.filter((p) => roles[p.id] !== "bandit");
+
+  // Bandits: everyone who is not a Bandit is gone.
+  if (living.length > 0 && nonBandits.length === 0) {
+    return livingBandits.map((p) => p.id);
+  }
+
+  // The King has fallen: Assassins get there first, as the sheet says.
+  if (king.eliminated) {
+    if (livingAssassins.length > 0) return livingAssassins.map((p) => p.id);
+    // Nobody left who can claim it — the host decides.
+    return null;
+  }
+
+  // The King wins with his Knights once the opposition is gone.
+  if (
+    livingAssassins.length === 0 &&
+    livingBandits.length === 0 &&
+    livingRenegades.length === 0
+  ) {
+    return living.map((p) => p.id);
+  }
+
+  return null;
+}
+
+/** Families still able to win, for the panel's status line. */
+export function livingFamilies(state: RoomState): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const player of state.players) {
+    if (player.eliminated) continue;
+    const role = state.kingdom.roles[player.id];
+    if (!role) continue;
+    counts[role] = (counts[role] ?? 0) + 1;
+  }
+  return counts;
 }

@@ -6,7 +6,14 @@ import type { GameMode, RoomState } from "@/lib/types";
 import { COMMANDER_DAMAGE_LETHAL, KING_LIFE, USURPED_KING_LIFE } from "@/lib/room/rules";
 import { createRng, rollPlanarFace, shuffle } from "@/lib/room/random";
 import { roleSetFor } from "@/lib/data/roles";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { PLANAR_CARDS } from "@/lib/data/planechase";
+import {
+  ADVANCED_KINGDOM_CARDS,
+  ADVANCED_SETUP_BY_SIZE,
+  cardById,
+} from "@/lib/data/advancedKingdoms";
 
 const HOST = "p_host";
 
@@ -16,8 +23,9 @@ function room(mode: GameMode, names = ["Host", "B", "C", "D", "E"]): RoomState {
     hostId: HOST,
     hostName: names[0],
     mode,
-    // Most tests want a big table regardless of the format default.
-    maxPlayers: 8,
+    // Most tests want a big table regardless of the format default. Nine
+    // covers the Advanced Kingdoms printed maximum.
+    maxPlayers: 9,
   });
   names.slice(1).forEach((name, i) => {
     state = applyAction(state, { type: "join", playerId: `p_${i + 1}`, name });
@@ -581,7 +589,7 @@ describe("kingdom role setup and classes", () => {
     state = act(state, {
       type: "configureRoles",
       byId: HOST,
-      setup: { king: 1, knight: 2, bandit: 2, assassin: 1, usurper: 0 },
+      setup: { king: 1, knight: 2, bandit: 2, assassin: 1, renegade: 0, usurper: 0 },
     });
     state = act(state, { type: "start", byId: HOST, seed: 7 });
 
@@ -598,7 +606,7 @@ describe("kingdom role setup and classes", () => {
     state = act(state, {
       type: "configureRoles",
       byId: HOST,
-      setup: { king: 1, knight: 1, bandit: 1, assassin: 1, usurper: 0 },
+      setup: { king: 1, knight: 1, bandit: 1, assassin: 1, renegade: 0, usurper: 0 },
     });
     state = act(state, { type: "start", byId: HOST, seed: 4 });
     // Five seats, four roles configured — deal the five-player default.
@@ -633,7 +641,7 @@ describe("kingdom role setup and classes", () => {
     state = act(state, {
       type: "configureRoles",
       byId: HOST,
-      setup: { king: 1, knight: 4, bandit: 1, assassin: 0, usurper: 0 },
+      setup: { king: 1, knight: 4, bandit: 1, assassin: 0, renegade: 0, usurper: 0 },
     });
     state = act(state, { type: "start", byId: HOST, seed: 3, classes });
 
@@ -649,20 +657,23 @@ describe("kingdom role setup and classes", () => {
 
   it("only the host can change the role composition, and only in the lobby", () => {
     let state = room("kingdom", sixNames);
-    const attempted = act(state, {
+    // An untouched setup is all zeroes, which means "use the table default".
+    const empty = () =>
+      Object.values(state.kingdom.setup).every((count) => count === 0);
+    act(state, {
       type: "configureRoles",
       byId: "p_1",
-      setup: { king: 1, knight: 5, bandit: 0, assassin: 0, usurper: 0 },
+      setup: { king: 1, knight: 5, bandit: 0, assassin: 0, renegade: 0, usurper: 0 },
     });
-    assert.equal(attempted.kingdom.setup, null);
+    assert.ok(empty());
 
     state = act(state, { type: "start", byId: HOST, seed: 1 });
-    const late = act(state, {
+    act(state, {
       type: "configureRoles",
       byId: HOST,
-      setup: { king: 1, knight: 5, bandit: 0, assassin: 0, usurper: 0 },
+      setup: { king: 1, knight: 5, bandit: 0, assassin: 0, renegade: 0, usurper: 0 },
     });
-    assert.equal(late.kingdom.setup, null);
+    assert.ok(empty());
   });
 });
 
@@ -711,5 +722,203 @@ describe("role visibility", () => {
     assert.equal(state.phase, "finished");
     // The roster needs all five roles, not just the winners.
     assert.equal(Object.keys(state.kingdom.roles).length, state.players.length);
+  });
+});
+
+describe("advanced kingdoms", () => {
+  const nine = ["Host", "B", "C", "D", "E", "F", "G", "H", "I"];
+
+  function advanced(names: string[]): RoomState {
+    let state = room("kingdom", names);
+    state = act(state, {
+      type: "setKingdomVariant",
+      byId: HOST,
+      variant: "advanced",
+    });
+    return state;
+  }
+
+  it("switches rulesets, and only the host may do it", () => {
+    const base = room("kingdom", ["Host", "B", "C", "D", "E"]);
+    assert.equal(base.kingdom.variant, "classic");
+
+    const attempted = act(base, {
+      type: "setKingdomVariant",
+      byId: "p_1",
+      variant: "advanced",
+    });
+    assert.equal(attempted.kingdom.variant, "classic");
+
+    const switched = act(base, {
+      type: "setKingdomVariant",
+      byId: HOST,
+      variant: "advanced",
+    });
+    assert.equal(switched.kingdom.variant, "advanced");
+  });
+
+  it("deals the printed composition for five players", () => {
+    let state = advanced(["Host", "B", "C", "D", "E"]);
+    state = act(state, { type: "start", byId: HOST, seed: 5 });
+
+    const roles = Object.values(state.kingdom.roles);
+    assert.equal(roles.filter((r) => r === "king").length, 1);
+    assert.equal(roles.filter((r) => r === "knight").length, 1);
+    assert.equal(roles.filter((r) => r === "assassin").length, 2);
+    assert.equal(roles.filter((r) => r === "renegade").length, 1);
+    assert.equal(roles.filter((r) => r === "bandit").length, 0);
+  });
+
+  it("deals the printed composition for nine players", () => {
+    let state = advanced(nine);
+    state = act(state, { type: "start", byId: HOST, seed: 9 });
+
+    const roles = Object.values(state.kingdom.roles);
+    assert.equal(roles.filter((r) => r === "king").length, 1);
+    assert.equal(roles.filter((r) => r === "knight").length, 2);
+    assert.equal(roles.filter((r) => r === "bandit").length, 3);
+    assert.equal(roles.filter((r) => r === "assassin").length, 3);
+    assert.equal(roles.filter((r) => r === "renegade").length, 0);
+  });
+
+  it("gives every player a real card whose family matches their role", () => {
+    let state = advanced(["Host", "B", "C", "D", "E", "F", "G"]);
+    state = act(state, { type: "start", byId: HOST, seed: 77 });
+
+    for (const [playerId, role] of Object.entries(state.kingdom.roles)) {
+      const cardId = state.kingdom.cards[playerId];
+      assert.ok(cardId, `${playerId} should hold a card`);
+      const card = cardById(cardId);
+      assert.ok(card, `${cardId} should exist`);
+      assert.equal(card?.family, role, "the card must match the family dealt");
+    }
+  });
+
+  it("starts the King ten life higher than the table", () => {
+    let state = advanced(["Host", "B", "C", "D", "E"]);
+    state = act(state, { type: "start", byId: HOST, seed: 3, classes: [] });
+
+    const king = state.players.find((p) => state.kingdom.roles[p.id] === "king");
+    const others = state.players.filter((p) => p.id !== king?.id);
+    assert.equal(king?.life, state.startingLife + 10);
+    for (const player of others) {
+      assert.equal(player.life, state.startingLife);
+    }
+  });
+
+  it("hands the win to the Assassins the moment the King falls", () => {
+    let state = advanced(["Host", "B", "C", "D", "E"]);
+    state = act(state, { type: "start", byId: HOST, seed: 12 });
+
+    const king = state.players.find((p) => state.kingdom.roles[p.id] === "king")!;
+    state = act(state, {
+      type: "adjustLife",
+      playerId: king.id,
+      delta: -state.startingLife - 10,
+    });
+
+    assert.equal(state.phase, "finished");
+    const winners = state.winners ?? [];
+    assert.ok(winners.length > 0);
+    for (const id of winners) {
+      assert.equal(state.kingdom.roles[id], "assassin");
+    }
+  });
+
+  it("hands the win to the King when the opposition is gone", () => {
+    let state = advanced(["Host", "B", "C", "D", "E"]);
+    state = act(state, { type: "start", byId: HOST, seed: 12 });
+
+    for (const player of [...state.players]) {
+      const role = state.kingdom.roles[player.id];
+      if (role === "king" || role === "knight") continue;
+      state = act(state, { type: "eliminate", playerId: player.id });
+      if (state.phase === "finished") break;
+    }
+
+    assert.equal(state.phase, "finished");
+    const winners = state.winners ?? [];
+    assert.ok(winners.some((id) => state.kingdom.roles[id] === "king"));
+  });
+
+  it("never guesses at a Renegade victory — the host calls it", () => {
+    let state = advanced(["Host", "B", "C", "D", "E"]);
+    state = act(state, { type: "start", byId: HOST, seed: 12 });
+    const renegade = state.players.find(
+      (p) => state.kingdom.roles[p.id] === "renegade",
+    )!;
+
+    state = act(state, {
+      type: "declareWinner",
+      byId: HOST,
+      winnerIds: [renegade.id],
+    });
+    assert.equal(state.phase, "finished");
+    assert.deepEqual(state.winners, [renegade.id]);
+    // The reveal happens automatically so the table can see why.
+    assert.equal(state.kingdom.revealAll, true);
+  });
+
+  it("falls back to the classic set below five players, where the printed table stops", () => {
+    let state = advanced(["Host", "B", "C", "D"]);
+    state = act(state, { type: "start", byId: HOST, seed: 4 });
+    const roles = Object.values(state.kingdom.roles);
+    assert.equal(roles.length, 4);
+    assert.equal(roles.filter((r) => r === "king").length, 1);
+  });
+});
+
+describe("advanced kingdoms dealing", () => {
+  it("never deals the same card to two players", () => {
+    // The printed game hands out physical cards, so each is unique per table.
+    for (const seed of [1, 2, 3, 17, 99, 404]) {
+      let state = room("kingdom", [
+        "Host", "B", "C", "D", "E", "F", "G", "H", "I",
+      ]);
+      state = act(state, {
+        type: "setKingdomVariant",
+        byId: HOST,
+        variant: "advanced",
+      });
+      state = act(state, { type: "start", byId: HOST, seed });
+
+      const dealt = Object.values(state.kingdom.cards);
+      assert.equal(
+        new Set(dealt).size,
+        dealt.length,
+        `seed ${seed} dealt a duplicate card`,
+      );
+    }
+  });
+
+  it("matches the printed table at every supported size", () => {
+    for (const size of [5, 6, 7, 8, 9]) {
+      const names = ["Host", "B", "C", "D", "E", "F", "G", "H", "I"].slice(0, size);
+      let state = room("kingdom", names);
+      state = act(state, {
+        type: "setKingdomVariant",
+        byId: HOST,
+        variant: "advanced",
+      });
+      state = act(state, { type: "start", byId: HOST, seed: size });
+
+      const expected = ADVANCED_SETUP_BY_SIZE[size];
+      const counts: Record<string, number> = {};
+      for (const role of Object.values(state.kingdom.roles)) {
+        counts[role] = (counts[role] ?? 0) + 1;
+      }
+      assert.equal(counts.king ?? 0, expected.king, `${size}p king`);
+      assert.equal(counts.knight ?? 0, expected.knight, `${size}p knight`);
+      assert.equal(counts.bandit ?? 0, expected.bandit, `${size}p bandit`);
+      assert.equal(counts.assassin ?? 0, expected.assassin, `${size}p assassin`);
+      assert.equal(counts.renegade ?? 0, expected.renegade, `${size}p renegade`);
+    }
+  });
+
+  it("has art on disk for every card it can deal", () => {
+    for (const card of ADVANCED_KINGDOM_CARDS) {
+      const file = join(process.cwd(), "public", card.image);
+      assert.ok(existsSync(file), `missing art for ${card.name}: ${card.image}`);
+    }
   });
 });

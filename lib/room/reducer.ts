@@ -1,5 +1,6 @@
 import type {
   GameMode,
+  KingdomVariant,
   LogEntry,
   PlanarFace,
   PlayerState,
@@ -9,6 +10,12 @@ import type {
 } from "@/lib/types";
 import { MODE_META } from "@/lib/types";
 import { roleSetFor } from "@/lib/data/roles";
+import {
+  ADVANCED_KING_BONUS,
+  advancedSetupFor,
+  cardById,
+  cardsForFamily,
+} from "@/lib/data/advancedKingdoms";
 import type { PlaneCard, SchemeCard } from "@/lib/content";
 import { createRng, randomSeed, rollPlanarFace, shuffle, uid } from "./random";
 import {
@@ -87,6 +94,9 @@ export type RoomAction =
       setup: Record<RoleId, number>;
     }
   | { type: "revealAllRoles"; byId: string; reveal: boolean }
+  | { type: "setKingdomVariant"; byId: string; variant: KingdomVariant }
+  /** Host adjudication, for cards whose result the app cannot compute. */
+  | { type: "declareWinner"; byId: string; winnerIds: string[] }
   | { type: "revealRole"; playerId: string }
   | { type: "claimRole"; playerId: string; role: RoleId | null };
 
@@ -235,21 +245,43 @@ function dealRoles(
 ): RoomState {
   const rng = createRng(seed);
   const seats = state.players.map((p) => p.id);
+  const advanced = state.kingdom.variant === "advanced";
 
   const configured = rolesFromSetup(state.kingdom.setup);
-  const bag =
-    configured.length === seats.length ? configured : roleSetFor(seats.length);
+  const fallback = advanced
+    ? advancedRolesFor(seats.length)
+    : roleSetFor(seats.length);
+  const bag = configured.length === seats.length ? configured : fallback;
 
   const roles = shuffle(bag, rng);
   const assigned: Record<string, RoleId> = {};
   const playerClasses: Record<string, string> = {};
+  const playerCards: Record<string, string> = {};
+
+  // Advanced Kingdoms deals physical cards: each family's pile is shuffled
+  // once and handed out without replacement, exactly as the setup card says.
+  // The printed set has five cards per family, and no table larger than nine
+  // needs more than three of any one family, so the piles never run dry.
+  const piles: Record<string, string[]> = {};
+  if (advanced) {
+    for (const family of ["king", "knight", "bandit", "assassin", "renegade"] as const) {
+      piles[family] = shuffle(cardsForFamily(family), rng).map((card) => card.id);
+    }
+  }
 
   seats.forEach((id, i) => {
     const role = roles[i] ?? "assassin";
     assigned[id] = role;
 
-    // Pick a class belonging to this role. No classes defined for it means no
-    // class, and the UI simply shows the role.
+    if (advanced) {
+      const family = role === "usurper" ? "renegade" : role;
+      const card = piles[family]?.shift();
+      if (card) playerCards[id] = card;
+      return;
+    }
+
+    // Classic: pick a class belonging to this role. No classes defined for it
+    // means no class, and the UI simply shows the role.
     const pool = classes.filter((entry) => entry.role === role);
     if (pool.length > 0) {
       playerClasses[id] = pool[Math.floor(rng() * pool.length)].id;
@@ -257,6 +289,10 @@ function dealRoles(
   });
 
   const kingId = seats.find((id) => assigned[id] === "king") ?? null;
+  // Advanced Kingdoms starts the King at +10 life, not at a flat total.
+  const kingLife = advanced
+    ? state.startingLife + ADVANCED_KING_BONUS
+    : KING_LIFE;
 
   let next: RoomState = {
     ...state,
@@ -264,6 +300,7 @@ function dealRoles(
       ...state.kingdom,
       dealt: true,
       roles: assigned,
+      cards: playerCards,
       classes: playerClasses,
       revealed: kingId ? [kingId] : [],
       claims: {},
@@ -271,11 +308,39 @@ function dealRoles(
     players: state.players.map((p) => ({
       ...p,
       role: assigned[p.id],
-      life: assigned[p.id] === "king" ? KING_LIFE : state.startingLife,
+      life: assigned[p.id] === "king" ? kingLife : state.startingLife,
     })),
   };
-  next = log(next, "system", `Roles dealt. ${playerName(next, kingId)} is the King.`);
+
+  const kingCard = kingId ? playerCards[kingId] : null;
+  const kingName = kingCard ? cardById(kingCard)?.name : null;
+  next = log(
+    next,
+    "system",
+    kingName && advanced
+      ? `Roles dealt. ${playerName(next, kingId)} is the King (${kingName}).`
+      : `Roles dealt. ${playerName(next, kingId)} is the King.`,
+  );
   return next;
+}
+
+/**
+ * Advanced Kingdoms composition by table size, as a flat role bag. Falls back
+ * to the classic set below five players, where the printed game does not run.
+ */
+function advancedRolesFor(playerCount: number): RoleId[] {
+  const setup = advancedSetupFor(playerCount);
+  if (!setup) return roleSetFor(Math.min(8, Math.max(2, playerCount)));
+  const bag: RoleId[] = [];
+  const push = (role: RoleId, count: number) => {
+    for (let i = 0; i < count; i++) bag.push(role);
+  };
+  push("king", setup.king);
+  push("knight", setup.knight);
+  push("bandit", setup.bandit);
+  push("assassin", setup.assassin);
+  push("renegade", setup.renegade);
+  return bag;
 }
 
 /** Expands {king: 1, bandit: 2, …} into the flat role bag to shuffle. */
@@ -842,6 +907,41 @@ export function applyAction(state: RoomState, action: RoomAction): RoomState {
     }
 
     // ---------------------------------------------------------------- Kingdoms
+    case "declareWinner": {
+      if (action.byId !== state.hostId) return state;
+      const winners = action.winnerIds.filter((id) =>
+        state.players.some((p) => p.id === id),
+      );
+      if (winners.length === 0) return state;
+      const names = winners
+        .map((id) => playerName(state, id))
+        .join(" and ");
+      const next: RoomState = {
+        ...state,
+        phase: "finished",
+        winners,
+        // Show every card once the result is called.
+        kingdom: { ...state.kingdom, revealAll: true },
+      };
+      return log(next, "system", `The host called the game for ${names}.`);
+    }
+
+    case "setKingdomVariant": {
+      if (action.byId !== state.hostId) return state;
+      if (state.phase !== "lobby") return state;
+      const next: RoomState = {
+        ...state,
+        kingdom: { ...state.kingdom, variant: action.variant },
+      };
+      return log(
+        next,
+        "system",
+        action.variant === "advanced"
+          ? "Advanced Kingdoms selected — 5 to 9 players, dealt from the printed card set."
+          : "Classic Kingdoms selected.",
+      );
+    }
+
     case "revealAllRoles": {
       if (action.byId !== state.hostId) return state;
       const next: RoomState = {

@@ -21,12 +21,21 @@ export type Phase = "lobby" | "playing" | "finished";
 import type { PlaneCard, RoleClass, SchemeCard } from "@/lib/content";
 export type { RoleClass };
 
+/**
+ * Role families: the level the win conditions are written against.
+ * "usurper" is the legacy six-player role from classic Kingdoms and is kept so
+ * saved rooms still load; it behaves as a Renegade.
+ */
 export type RoleId =
   | "king"
   | "knight"
   | "bandit"
   | "assassin"
+  | "renegade"
   | "usurper";
+
+/** Classic five-role Kingdoms, or the Advanced Kingdoms card set. */
+export type KingdomVariant = "classic" | "advanced";
 
 export type PlanarFace = "blank" | "chaos" | "planeswalk";
 
@@ -87,14 +96,20 @@ export interface ArchenemyState {
 }
 
 export interface KingdomState {
+  variant: KingdomVariant;
   dealt: boolean;
   /**
    * How many of each role are in play, chosen in the setup window.
    * A count of 0 means the role is not in this game.
    */
   setup: Record<RoleId, number>;
-  /** Player id -> role. Undefined until roles are dealt. */
+  /** Player id -> role family. Undefined until roles are dealt. */
   roles: Record<string, RoleId>;
+  /**
+   * Advanced Kingdoms only: player id -> printed card id. The family lives in
+   * `roles`; this is the specific card whose art and text the player sees.
+   */
+  cards: Record<string, string>;
   /** Player id -> class id, picked at random inside their role. */
   classes: Record<string, string>;
   /** Player ids whose role is public knowledge. */
@@ -235,13 +250,16 @@ export const MODE_META: Record<GameMode, ModeMeta> = {
     id: "kingdom",
     name: "Kingdoms",
     tagline: "Trust nobody",
-    players: "2–8 players",
+    players: "2–9 players",
     defaultLife: 40,
     defaultMaxPlayers: 6,
     minPlayers: 2,
-    maxPlayers: 8,
+    // Nine seats so Advanced Kingdoms can run its full printed table. Classic
+    // Kingdoms still tops out at eight in practice — the setup window governs
+    // what actually gets dealt.
+    maxPlayers: 9,
     accent: "#facc15",
     summary:
-      "The Treachery / Kingdoms variant: secret roles and asymmetric win conditions. The King is public and starts at 50.",
+      "The Treachery / Kingdoms variant: secret roles and asymmetric win conditions. The King is public and starts at 50. Advanced Kingdoms adds 21 printed role cards for 5–9 players.",
   },
 };
