@@ -12,6 +12,7 @@ import {
 } from "@/lib/types";
 import { useRoom } from "@/lib/useRoom";
 import { useContent } from "@/lib/useContent";
+import { ROLES } from "@/lib/data/roles";
 import { getSavedName, saveName } from "@/lib/identity";
 import { PlayerTile } from "@/components/PlayerTile";
 import { PlayerSheet } from "@/components/PlayerSheet";
@@ -114,6 +115,29 @@ export function RoomClient({ code }: { code: string }) {
   );
 
   // Someone else at the table already goes by this name.
+  // When a Kingdom game ends, everyone gets to see who was what.
+  const kingdomRoster = useMemo(() => {
+    if (!room || room.state.mode !== "kingdom") return null;
+    const { roles, classes } = room.state.kingdom;
+    if (!roles || Object.keys(roles).length === 0) return null;
+    return [...room.state.players]
+      .sort((a, b) => a.seat - b.seat)
+      .map((player) => {
+        const role = roles[player.id];
+        const className = content.classes.find(
+          (entry) => entry.id === classes[player.id],
+        )?.name;
+        return {
+          id: player.id,
+          name: player.name,
+          role: role ? ROLES[role].name : "—",
+          colour: role ? ROLES[role].colour : "#64748b",
+          className: className ?? null,
+          eliminated: player.eliminated,
+        };
+      });
+  }, [content.classes, room]);
+
   const nameTaken = useMemo(() => {
     const wanted = name.trim().toLowerCase();
     if (!wanted) return false;
@@ -382,6 +406,7 @@ export function RoomClient({ code }: { code: string }) {
         <WinnerOverlay
           state={state}
           isHost={isHost}
+          roster={kingdomRoster}
           onNextGame={() => dispatch({ type: "reset", byId: meId })}
           onDismiss={() => setResultsDismissed(true)}
         />
@@ -1010,14 +1035,25 @@ function LogTab({
   );
 }
 
+interface RosterRow {
+  id: string;
+  name: string;
+  role: string;
+  colour: string;
+  className: string | null;
+  eliminated: boolean;
+}
+
 function WinnerOverlay({
   state,
   isHost,
+  roster,
   onNextGame,
   onDismiss,
 }: {
   state: RoomState;
   isHost: boolean;
+  roster: RosterRow[] | null;
   onNextGame: () => void;
   onDismiss: () => void;
 }) {
@@ -1041,6 +1077,29 @@ function WinnerOverlay({
             );
           })}
         </div>
+        {roster && roster.length > 0 && (
+          <div className="mt-4 rounded-xl border border-white/10 bg-black/25 p-2.5 text-left">
+            <div className="mb-1.5 text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">
+              Who was what
+            </div>
+            <div className="space-y-1">
+              {roster.map((row) => (
+                <div key={row.id} className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate text-[11px] font-bold text-slate-300">
+                    {row.name}
+                  </span>
+                  <span
+                    className="shrink-0 text-[11px] font-black"
+                    style={{ color: row.colour }}
+                  >
+                    {row.className ?? row.role}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {isHost ? (
           <button onClick={onNextGame} className="btn btn-primary mt-5 w-full py-3">
             Set up the next game

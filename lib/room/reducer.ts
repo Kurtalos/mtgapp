@@ -86,6 +86,7 @@ export type RoomAction =
       byId: string;
       setup: Record<RoleId, number>;
     }
+  | { type: "revealAllRoles"; byId: string; reveal: boolean }
   | { type: "revealRole"; playerId: string }
   | { type: "claimRole"; playerId: string; role: RoleId | null };
 
@@ -513,6 +514,7 @@ export function applyAction(state: RoomState, action: RoomAction): RoomState {
           classes: {},
           revealed: [],
           claims: {},
+          revealAll: false,
         },
         archenemy: {
           archenemyId: state.archenemy.archenemyId,
@@ -840,6 +842,21 @@ export function applyAction(state: RoomState, action: RoomAction): RoomState {
     }
 
     // ---------------------------------------------------------------- Kingdoms
+    case "revealAllRoles": {
+      if (action.byId !== state.hostId) return state;
+      const next: RoomState = {
+        ...state,
+        kingdom: { ...state.kingdom, revealAll: action.reveal },
+      };
+      return log(
+        next,
+        "system",
+        action.reveal
+          ? "The host revealed every role at the table."
+          : "The host hid the roles again.",
+      );
+    }
+
     case "configureRoles": {
       if (action.byId !== state.hostId) return state;
       if (state.phase !== "lobby") return state;

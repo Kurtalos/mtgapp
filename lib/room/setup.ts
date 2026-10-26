@@ -59,6 +59,7 @@ export function createRoomState(options: {
       classes: {},
       revealed: [],
       claims: {},
+      revealAll: false,
     },
     log: [
       {

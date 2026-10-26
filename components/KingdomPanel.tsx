@@ -9,6 +9,58 @@ import { Badge, Modal } from "./ui";
 
 const ROLE_ORDER: RoleId[] = ["king", "knight", "bandit", "assassin", "usurper"];
 
+function RoleRoster({
+  state,
+  content,
+  myId,
+}: {
+  state: RoomState;
+  content: { classes: Array<{ id: string; name: string }> };
+  myId: string;
+}) {
+  const rows = [...state.players].sort((a, b) => a.seat - b.seat);
+  return (
+    <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
+      <div className="mb-2 text-[9px] font-black uppercase tracking-[0.14em] text-slate-400">
+        {state.phase === "finished" ? "Final roles" : "Revealed by the host"}
+      </div>
+      <div className="space-y-1">
+        {rows.map((player) => {
+          const role = state.kingdom.roles[player.id];
+          if (!role) return null;
+          const roleMeta = ROLES[role];
+          const classId = state.kingdom.classes[player.id];
+          const className = content.classes.find((entry) => entry.id === classId)?.name;
+          return (
+            <div
+              key={player.id}
+              className="flex items-center gap-2 rounded-lg bg-white/5 px-2.5 py-1.5"
+            >
+              <span className="min-w-0 flex-1 truncate text-xs font-bold text-slate-200">
+                {player.name}
+                {player.id === myId && (
+                  <span className="ml-1 text-[9px] uppercase text-mana">you</span>
+                )}
+              </span>
+              {player.eliminated && (
+                <span className="text-[9px] font-black uppercase text-slate-600">
+                  out
+                </span>
+              )}
+              <span
+                className="shrink-0 text-[11px] font-black"
+                style={{ color: roleMeta.colour }}
+              >
+                {className ?? roleMeta.name}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 const ROLE_LIMITS: Record<RoleId, number> = {
   king: 1,
   knight: 3,
@@ -62,6 +114,8 @@ export function KingdomPanel({
   const king = state.players.find((p) => state.kingdom.roles[p.id] === "king");
   const dealt = state.kingdom.dealt;
   const myClaim = state.kingdom.claims[myId];
+  // Every role is public once the game is over, or if the host forces it.
+  const showAll = dealt && (state.phase === "finished" || state.kingdom.revealAll);
 
   const draftTotal = ROLE_ORDER.reduce((sum, role) => sum + draft[role], 0);
   const draftValid = draft.king === 1 && draftTotal === playerCount;
@@ -134,8 +188,14 @@ export function KingdomPanel({
             </button>
           </div>
           {peeking && (
-            <div className="mt-2 border-t border-white/10 pt-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
-              {meta.goal}
+            <div className="mt-2 border-t border-white/10 pt-2">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                {meta.goal}
+              </div>
+              <p className="mt-1.5 text-[9px] leading-snug text-slate-600">
+                Hidden on screen, not encrypted — a glance over your shoulder is
+                the real threat, not someone reading the wire.
+              </p>
             </div>
           )}
         </div>
@@ -252,6 +312,26 @@ export function KingdomPanel({
           </p>
         </div>
       )}
+
+      {/* Host override */}
+      {isHost && dealt && (
+        <button
+          onClick={() =>
+            dispatch({
+              type: "revealAllRoles",
+              byId: myId,
+              reveal: !state.kingdom.revealAll,
+            })
+          }
+          className={`btn w-full py-2.5 text-xs ${
+            state.kingdom.revealAll ? "btn-primary" : "btn-ghost"
+          }`}
+        >
+          {state.kingdom.revealAll ? "Hide roles again" : "Reveal every role"}
+        </button>
+      )}
+
+      {showAll && <RoleRoster state={state} content={content} myId={myId} />}
 
       <div className="flex items-center justify-between">
         <Badge tone="amber">Secret roles</Badge>

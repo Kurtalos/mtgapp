@@ -665,3 +665,51 @@ describe("kingdom role setup and classes", () => {
     assert.equal(late.kingdom.setup, null);
   });
 });
+
+describe("role visibility", () => {
+  it("starts with roles hidden from the whole table", () => {
+    const state = started("kingdom");
+    assert.equal(state.kingdom.revealAll, false);
+    // Only the King is public.
+    assert.equal(state.kingdom.revealed.length, 1);
+  });
+
+  it("lets the host reveal and re-hide every role", () => {
+    let state = started("kingdom");
+    state = act(state, { type: "revealAllRoles", byId: HOST, reveal: true });
+    assert.equal(state.kingdom.revealAll, true);
+    assert.match(state.log[0].text, /revealed every role/);
+
+    state = act(state, { type: "revealAllRoles", byId: HOST, reveal: false });
+    assert.equal(state.kingdom.revealAll, false);
+  });
+
+  it("ignores a reveal request from a non-host", () => {
+    const state = started("kingdom");
+    const attempted = act(state, {
+      type: "revealAllRoles",
+      byId: "p_1",
+      reveal: true,
+    });
+    assert.equal(attempted.kingdom.revealAll, false);
+  });
+
+  it("hides roles again when the table is reset for a new game", () => {
+    let state = started("kingdom");
+    state = act(state, { type: "revealAllRoles", byId: HOST, reveal: true });
+    state = act(state, { type: "reset", byId: HOST });
+    assert.equal(state.kingdom.revealAll, false);
+    assert.deepEqual(state.kingdom.roles, {});
+  });
+
+  it("keeps every role assigned once the game is over, for the reveal screen", () => {
+    let state = started("kingdom");
+    const kingId = Object.keys(state.kingdom.roles).find(
+      (id) => state.kingdom.roles[id] === "king",
+    )!;
+    state = act(state, { type: "adjustLife", playerId: kingId, delta: -KING_LIFE });
+    assert.equal(state.phase, "finished");
+    // The roster needs all five roles, not just the winners.
+    assert.equal(Object.keys(state.kingdom.roles).length, state.players.length);
+  });
+});
