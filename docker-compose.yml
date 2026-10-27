@@ -7,8 +7,8 @@ services:
         # image must be rebuilt, not just restarted.
         NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
         NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}
-    image: mana-table:latest
-    container_name: mana-table
+    image: cards-with-kurt:latest
+    container_name: cards-with-kurt
     restart: unless-stopped
     ports:
       # Bound to localhost: Caddy (or nginx) terminates TLS and proxies in.
@@ -21,6 +21,9 @@ services:
       # Leave it unset and the admin panel is open to anyone who finds it.
       ADMIN_TOKEN: ${ADMIN_TOKEN:-}
     volumes:
+      # Deliberately still called manatable-data. Renaming this would create a
+      # brand-new empty volume and orphan every room and admin addition saved
+      # under the old one. Internal name, no user ever sees it.
       - manatable-data:/app/.data
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/"]

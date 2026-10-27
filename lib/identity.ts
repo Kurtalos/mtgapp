@@ -1,5 +1,13 @@
 import { uid } from "@/lib/room/random";
 
+/**
+ * Storage keys, frozen at the app's original name on purpose.
+ *
+ * The app is now called Cards with Kurt & Friends, but these strings identify
+ * *this player* to the server. Renaming them would hand everyone a fresh id on
+ * their next visit — mid-game they would appear as a new person, or be pushed
+ * to spectator because the game had already started. Internal, never rendered.
+ */
 const ID_KEY = "manatable:playerId";
 const NAME_KEY = "manatable:displayName";
 

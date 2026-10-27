@@ -1,8 +1,8 @@
-# Mana Table
+# Cards with Kurt & Friends
 
-A shared life counter for paper Magic. The host opens a table, reads out a
-five-character code, and everyone joins from their phone browser — no app
-install, no accounts.
+A shared life counter for paper Magic, built for game night at Kurt's. The host
+opens a table, reads out a five-character code, and everyone joins from their
+phone browser — no app install, no accounts.
 
 The host sets the format, the **player limit** and the **starting life total**
 when they create the table, and anyone who arrives late, or would rather just

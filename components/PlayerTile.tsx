@@ -7,15 +7,22 @@ import {
   highestCommanderDamage,
 } from "@/lib/room/rules";
 
+/**
+ * Seat colours. Purely cosmetic — derived from the seat index at render time,
+ * so changing these never affects a game in progress.
+ *
+ * Seat 1 is the brand gold; the rest are spaced far enough apart in hue to stay
+ * distinguishable on a phone at a glance, which is the only job they have.
+ */
 export const SEAT_COLOURS = [
-  "#00f296",
-  "#a881ff",
-  "#38bdf8",
-  "#facc15",
-  "#fb7185",
+  "#e6c067",
+  "#a78bfa",
+  "#60a5fa",
+  "#f472b6",
   "#34d399",
-  "#f97316",
+  "#fb923c",
   "#e879f9",
+  "#94a3b8",
 ];
 
 export function seatColour(seat: number): string {

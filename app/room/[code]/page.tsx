@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { RoomClient } from "./RoomClient";
 
 export const metadata: Metadata = {
-  title: "Table — Mana Table",
+  title: "Table — Cards with Kurt & Friends",
 };
 
 export default async function RoomPage({
