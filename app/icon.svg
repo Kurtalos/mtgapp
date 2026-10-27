@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!--
+    Cards with Kurt & Friends — the tab icon.
+
+    The same two fanned cards as the in-app mark, redrawn with fatter strokes so
+    the shape still reads at 16px. The back card is dropped to a plain outline:
+    at favicon size the two-card fan otherwise turns into a smudge.
+  -->
+  <rect width="64" height="64" rx="12" fill="#0b0a12"/>
+  <rect x="13" y="11" width="28" height="42" rx="5" transform="rotate(-9 27 32)"
+        fill="none" stroke="#d9b45e" stroke-opacity=".5" stroke-width="3.5"/>
+  <rect x="25" y="13" width="28" height="42" rx="5" transform="rotate(7 39 34)"
+        fill="#14121f" stroke="#d9b45e" stroke-width="4"/>
+  <g transform="rotate(7 39 34)">
+    <path d="M39 24.5 45.5 34 39 43.5 32.5 34Z" fill="#d9b45e"/>
+  </g>
+</svg>
