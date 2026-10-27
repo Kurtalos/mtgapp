@@ -4,6 +4,8 @@ import { useState } from "react";
 import type { RoomState } from "@/lib/types";
 import { cardById } from "@/lib/data/advancedKingdoms";
 import { ROLES } from "@/lib/data/roles";
+import { cardArtFor } from "@/lib/scryfall";
+import { usePlaneArt, useSchemeArt } from "@/lib/useCardArt";
 import { PlayerTile } from "./PlayerTile";
 import { RollBanner } from "./RollBanner";
 import { CardZoom, ZoomThumb, type ZoomCard } from "./CardZoom";
@@ -96,6 +98,10 @@ function PlaneInPlay({
   state: RoomState;
   onZoom: (card: ZoomCard) => void;
 }) {
+  // Bundled planes carry no image of their own — the art comes from Scryfall,
+  // fetched in the browser. A spectator is looking at the same card the table
+  // is, so it has to go through exactly the same lookup.
+  const planeArt = usePlaneArt();
   const plane = state.planechase.current;
   if (!plane) {
     return (
@@ -107,11 +113,15 @@ function PlaneInPlay({
     );
   }
 
+  const art = cardArtFor(planeArt, plane.name);
+  const image = plane.image ?? art?.image ?? null;
+  const rules = plane.oracleText || art?.oracleText || "";
+
   const toCard = (): ZoomCard => ({
-    src: plane.image ?? "",
+    src: image ?? "",
     title: plane.name,
     eyebrow: plane.type,
-    body: [plane.oracleText, plane.chaosText && `Chaos: ${plane.chaosText}`]
+    body: [rules, plane.chaosText && `Chaos: ${plane.chaosText}`]
       .filter(Boolean)
       .join("\n\n"),
   });
@@ -120,7 +130,7 @@ function PlaneInPlay({
     <Section label="Plane in play">
       <div className="flex gap-3">
         <ZoomThumb
-          src={plane.image}
+          src={image}
           alt={plane.name}
           onZoom={() => onZoom(toCard())}
           className="h-28 w-20"
@@ -133,7 +143,7 @@ function PlaneInPlay({
             {plane.name}
           </button>
           <p className="mt-1 line-clamp-4 text-[11px] leading-snug text-slate-400">
-            {plane.oracleText}
+            {rules}
           </p>
           {plane.chaosText && (
             <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-violet/80">
@@ -159,6 +169,9 @@ function SchemeInPlay({
   onZoom: (card: ZoomCard) => void;
 }) {
   const { lastRevealed, active } = state.archenemy;
+  // Same story as planes: the official scheme set is fetched by the browser,
+  // so a scheme dealt from Scryfall has no image field of its own.
+  const schemeArt = useSchemeArt();
   const archenemy = state.players.find(
     (p) => p.id === state.archenemy.archenemyId,
   );
@@ -171,45 +184,43 @@ function SchemeInPlay({
         </p>
       )}
 
-      {lastRevealed && (
-        <div className="flex gap-3">
-          <ZoomThumb
-            src={lastRevealed.image}
-            alt={lastRevealed.name}
-            onZoom={() =>
-              onZoom({
-                src: lastRevealed.image ?? "",
-                title: lastRevealed.name,
-                eyebrow: "Scheme in motion",
-                body: lastRevealed.oracleText,
-              })
-            }
-            className="h-28 w-20"
-          />
-          <div className="min-w-0 flex-1">
-            <div className="text-[9px] font-black uppercase tracking-wider text-violet">
-              In motion
+      {lastRevealed && (() => {
+        const art = cardArtFor(schemeArt, lastRevealed.name);
+        const image = lastRevealed.image ?? art?.image ?? null;
+        const rules = lastRevealed.oracleText || art?.oracleText || "";
+        const card: ZoomCard = {
+          src: image ?? "",
+          title: lastRevealed.name,
+          eyebrow: "Scheme in motion",
+          body: rules,
+        };
+        return (
+          <div className="flex gap-3">
+            <ZoomThumb
+              src={image}
+              alt={lastRevealed.name}
+              onZoom={() => onZoom(card)}
+              className="h-28 w-20"
+            />
+            <div className="min-w-0 flex-1">
+              <div className="text-[9px] font-black uppercase tracking-wider text-violet">
+                In motion
+              </div>
+              <button
+                onClick={() => onZoom(card)}
+                className="text-left text-sm font-extrabold leading-tight text-white"
+              >
+                {lastRevealed.name}
+              </button>
+              {rules && (
+                <p className="mt-1 line-clamp-4 text-[11px] leading-snug text-slate-400">
+                  {rules}
+                </p>
+              )}
             </div>
-            <button
-              onClick={() =>
-                onZoom({
-                  src: lastRevealed.image ?? "",
-                  title: lastRevealed.name,
-                  body: lastRevealed.oracleText,
-                })
-              }
-              className="text-left text-sm font-extrabold leading-tight text-white"
-            >
-              {lastRevealed.name}
-            </button>
-            {lastRevealed.oracleText && (
-              <p className="mt-1 line-clamp-4 text-[11px] leading-snug text-slate-400">
-                {lastRevealed.oracleText}
-              </p>
-            )}
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {active.length > 0 && (
         <div className="mt-2 space-y-1 border-t border-white/5 pt-2">
@@ -219,14 +230,15 @@ function SchemeInPlay({
           {active.map((scheme) => (
             <button
               key={scheme.id}
-              onClick={() =>
+              onClick={() => {
+                const art = cardArtFor(schemeArt, scheme.name);
                 onZoom({
-                  src: scheme.image ?? "",
+                  src: scheme.image ?? art?.image ?? "",
                   title: scheme.name,
                   eyebrow: "Ongoing scheme",
-                  body: scheme.oracleText,
-                })
-              }
+                  body: scheme.oracleText || art?.oracleText || "",
+                });
+              }}
               className="block w-full truncate rounded-lg bg-white/5 px-2 py-1.5 text-left text-[11px] font-bold text-slate-300"
             >
               {scheme.name}
