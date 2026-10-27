@@ -306,11 +306,10 @@ describe("kingdoms", () => {
     assert.deepEqual(new Set(state.winners), new Set([kingId, knightId]));
   });
 
-  it("no longer swaps the throne automatically, because the app cannot see who dealt the damage", () => {
-    // A consequence of the own-life rule. The engine can tell who *tapped*,
-    // not who dealt the damage — and the only people allowed to move the
-    // King's life are now the King and the host. So a Usurper can never be the
-    // credited attacker from the app, and the swap is left to the table.
+  it("lets a Usurper take the throne instead of the King dying", () => {
+    // Six players guarantees a Usurper is dealt. This works because any player
+    // may reduce another player's life — the Usurper can swing at the King's
+    // tile and be credited for the kill.
     let state = started("kingdom", ["Host", "B", "C", "D", "E", "F"]);
     const kingId = Object.keys(state.kingdom.roles).find(
       (id) => state.kingdom.roles[id] === "king",
@@ -318,29 +317,40 @@ describe("kingdoms", () => {
     const usurperId = Object.keys(state.kingdom.roles).find(
       (id) => state.kingdom.roles[id] === "usurper",
     )!;
-    const kingLife = player(state, kingId).life;
 
-    // The Usurper tries to land the killing blow on someone else's tile.
-    const attempted = act(state, {
+    state = act(state, {
       type: "adjustLife",
       playerId: kingId,
       delta: -KING_LIFE,
       byPlayerId: usurperId,
     });
-    assert.equal(player(attempted, kingId).life, kingLife, "rejected outright");
-    assert.equal(attempted.kingdom.roles[kingId], "king");
 
-    // The King taps their own life down: they are eliminated, but with no
-    // attacker to credit, no usurpation happens.
+    assert.equal(state.kingdom.roles[usurperId], "king");
+    assert.equal(state.kingdom.roles[kingId], "usurper");
+    assert.equal(player(state, usurperId).life, KING_LIFE);
+    assert.equal(player(state, kingId).life, 5);
+    assert.equal(player(state, kingId).eliminated, false);
+    assert.notEqual(state.phase, "finished");
+  });
+
+  it("does not swap the throne when the King dies to anyone else", () => {
+    let state = started("kingdom", ["Host", "B", "C", "D", "E", "F"]);
+    const kingId = Object.keys(state.kingdom.roles).find(
+      (id) => state.kingdom.roles[id] === "king",
+    )!;
+    const otherId = ids(state).find(
+      (id) => id !== kingId && state.kingdom.roles[id] !== "usurper",
+    )!;
+
     state = act(state, {
       type: "adjustLife",
       playerId: kingId,
       delta: -KING_LIFE,
-      byPlayerId: kingId,
+      byPlayerId: otherId,
     });
-    assert.equal(state.phase, "finished");
+
     assert.equal(state.kingdom.roles[kingId], "king");
-    assert.equal(state.kingdom.roles[usurperId], "usurper");
+    assert.notEqual(state.kingdom.roles[otherId], "king");
   });
 
   it("does not usurp when the King dies to someone else", () => {
@@ -937,33 +947,52 @@ describe("advanced kingdoms dealing", () => {
 });
 
 describe("who may change a life total", () => {
-  it("lets the host adjust anyone", () => {
+  it("lets the host adjust anyone, in either direction", () => {
     const state = started("commander");
     const other = ids(state).find((id) => id !== HOST)!;
     const before = player(state, other).life;
 
-    const after = act(state, {
+    const down = act(state, {
       type: "adjustLife",
       playerId: other,
       delta: -3,
       byPlayerId: HOST,
     });
-    assert.equal(player(after, other).life, before - 3);
+    assert.equal(player(down, other).life, before - 3);
+
+    const up = act(state, {
+      type: "adjustLife",
+      playerId: other,
+      delta: 7,
+      byPlayerId: HOST,
+    });
+    assert.equal(player(up, other).life, before + 7);
   });
 
-  it("lets a player adjust their own", () => {
+  it("lets a player adjust their own, in either direction", () => {
     const state = started("commander");
     const before = player(state, "p_1").life;
-    const after = act(state, {
+
+    const down = act(state, {
       type: "adjustLife",
       playerId: "p_1",
       delta: -1,
       byPlayerId: "p_1",
     });
-    assert.equal(player(after, "p_1").life, before - 1);
+    assert.equal(player(down, "p_1").life, before - 1);
+
+    const up = act(state, {
+      type: "adjustLife",
+      playerId: "p_1",
+      delta: 4,
+      byPlayerId: "p_1",
+    });
+    assert.equal(player(up, "p_1").life, before + 4);
   });
 
-  it("refuses one player editing another's", () => {
+  it("lets any player deal damage to another", () => {
+    // Damage is aimed outward, and the table has to be able to credit the
+    // player who actually swung.
     const state = started("commander");
     const before = player(state, "p_2").life;
     const after = act(state, {
@@ -972,12 +1001,24 @@ describe("who may change a life total", () => {
       delta: -5,
       byPlayerId: "p_1",
     });
+    assert.equal(player(after, "p_2").life, before - 5);
+  });
+
+  it("refuses to let a player heal another", () => {
+    const state = started("commander");
+    const before = player(state, "p_2").life;
+    const after = act(state, {
+      type: "adjustLife",
+      playerId: "p_2",
+      delta: 5,
+      byPlayerId: "p_1",
+    });
     assert.equal(player(after, "p_2").life, before);
-    // Not even a log line: a refused action is a no-op.
+    // A refused action is a true no-op, not a redraw.
     assert.equal(after, state);
   });
 
-  it("refuses a spectator, who is not a player at all", () => {
+  it("refuses a spectator, who holds an id but no seat", () => {
     const state = started("commander");
     const before = player(state, HOST).life;
     const after = act(state, {
@@ -1000,24 +1041,33 @@ describe("who may change a life total", () => {
     assert.equal(player(after, "p_1").life, before);
   });
 
-  it("applies the same rule to setting a life total outright", () => {
+  it("judges a typed-in total by which way it moves", () => {
     const state = started("commander");
 
-    const blocked = act(state, {
+    // Lowering someone else's life is damage, so it is allowed.
+    const damage = act(state, {
       type: "setLife",
       playerId: "p_2",
       value: 7,
       byPlayerId: "p_1",
     });
-    assert.notEqual(player(blocked, "p_2").life, 7);
+    assert.equal(player(damage, "p_2").life, 7);
 
-    // Otherwise the rule is bypassable by typing a number instead of tapping.
-    const allowed = act(state, {
+    // Raising it is healing, which is the host's call.
+    const heal = act(damage, {
       type: "setLife",
       playerId: "p_2",
-      value: 7,
+      value: 40,
+      byPlayerId: "p_1",
+    });
+    assert.equal(player(heal, "p_2").life, 7);
+
+    const hostHeal = act(damage, {
+      type: "setLife",
+      playerId: "p_2",
+      value: 40,
       byPlayerId: HOST,
     });
-    assert.equal(player(allowed, "p_2").life, 7);
+    assert.equal(player(hostHeal, "p_2").life, 40);
   });
 });

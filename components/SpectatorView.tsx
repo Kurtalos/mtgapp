@@ -45,6 +45,7 @@ export function SpectatorView({
             state={state}
             isMe={false}
             canEdit={false}
+            canIncrease={false}
             isOnline={onlineIds.size === 0 || onlineIds.has(player.id)}
             onAdjust={() => {}}
             onOpen={() => {}}

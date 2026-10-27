@@ -296,8 +296,10 @@ export function RoomClient({ code }: { code: string }) {
                 player={player}
                 state={state}
                 isMe={player.id === meId}
-                // Your own tile, or the host's right to correct anyone.
-                canEdit={isHost || player.id === meId}
+                // Anyone seated may touch any total (damage is aimed
+                // outward); only your own, or the host, may raise one.
+                canEdit={Boolean(me)}
+                canIncrease={isHost || player.id === meId}
                 isOnline={onlineIds.size === 0 || onlineIds.has(player.id)}
                 onAdjust={(delta) =>
                   dispatch({

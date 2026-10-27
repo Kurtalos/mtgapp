@@ -190,11 +190,9 @@ function settle(state: RoomState): { state: RoomState; deaths: string[] } {
 /**
  * The classic six-player Usurper's throne swap.
  *
- * Note: since life changes are restricted to "your own, or the host's", the
- * only actors who can move the King's life are the King and the host — so a
- * Usurper can never be the crediting attacker here, and this no longer fires
- * from the app. It is kept because the mechanic is still correct, and a future
- * "record damage from…" control would reach it again.
+ * Fires when the engine is told the Usurper dealt the lethal damage. That is
+ * now expressible again: any player may reduce another player's life, so the
+ * Usurper can swing at the King's tile and be credited for the kill.
  */
 function maybeUsurp(state: RoomState, kingId: string, byId?: string): RoomState {
   if (state.mode !== "kingdom" || !byId || byId === kingId) return state;
@@ -355,9 +353,17 @@ function advancedRolesFor(playerCount: number): RoleId[] {
 /**
  * Who is allowed to change a life total.
  *
- * The host may correct anyone's life — that is the whole point of a host — and
- * every other player may only change their own. Without this a stray tap on the
- * next tile along silently rewrites somebody else's game.
+ * Three rules, in order:
+ *
+ *   1. The host may correct anyone — that is what a host is for.
+ *   2. A player may always change their own total.
+ *   3. Any seated player may *reduce* another player's total, because damage is
+ *      aimed outward and the table has to be able to point at the person who
+ *      just got hit. Nobody but the host may *raise* someone else's life.
+ *
+ * Rule 3 exists so a lethal swing can be credited to the player who made it —
+ * without it the Usurper's throne swap is unreachable, since only the King and
+ * the host would ever be able to move the King's life total.
  *
  * This is a correctness guard, not a security boundary. The room document is
  * written by the clients themselves, so a determined player could PUT whatever
@@ -370,10 +376,19 @@ export function canAdjustLife(
   state: RoomState,
   byId: string | undefined,
   targetId: string,
+  delta: number,
 ): boolean {
   if (!byId) return false;
   if (byId === state.hostId) return true;
-  return byId === targetId;
+
+  // Spectators hold an id but no seat; they watch, they do not play.
+  const seated = state.players.some((player) => player.id === byId);
+  if (!seated) return false;
+
+  if (byId === targetId) return true;
+
+  // Damage only. Healing another player is the host's call.
+  return delta < 0;
 }
 
 /** Expands {king: 1, bandit: 2, …} into the flat role bag to shuffle. */
@@ -635,7 +650,8 @@ export function applyAction(state: RoomState, action: RoomAction): RoomState {
 
     case "adjustLife": {
       if (state.phase === "lobby") return state;
-      if (!canAdjustLife(state, action.byPlayerId, action.playerId)) return state;
+      if (!canAdjustLife(state, action.byPlayerId, action.playerId, action.delta))
+        return state;
       let next: RoomState = withPlayer(state, action.playerId, (p) => ({
         ...p,
         life: p.life + action.delta,
@@ -658,9 +674,21 @@ export function applyAction(state: RoomState, action: RoomAction): RoomState {
     }
 
     case "setLife": {
-      if (!canAdjustLife(state, action.byPlayerId, action.playerId)) return state;
       const value = Math.round(action.value);
       if (!Number.isFinite(value)) return state;
+      const target = state.players.find((p) => p.id === action.playerId);
+      if (!target) return state;
+      // A "set to" is either damage or healing depending which way it goes.
+      if (
+        !canAdjustLife(
+          state,
+          action.byPlayerId,
+          action.playerId,
+          value - target.life,
+        )
+      ) {
+        return state;
+      }
       const next = withPlayer(state, action.playerId, (p) => ({ ...p, life: value }));
       return settle(next).state;
     }
