@@ -156,7 +156,11 @@ export function RoomClient({ code }: { code: string }) {
         : `/room/${code}`;
     try {
       if (navigator.share) {
-        await navigator.share({ title: "Mana Table", text: `Join my table: ${code}`, url });
+        await navigator.share({
+          title: "Cards with Kurt & Friends",
+          text: `Join my table: ${code}`,
+          url,
+        });
         return;
       }
       await navigator.clipboard.writeText(url);
@@ -1018,9 +1022,9 @@ function LogTab({
             style={{
               background:
                 entry.kind === "life"
-                  ? "#00f296"
+                  ? "#d9b45e"
                   : entry.kind === "commander"
-                    ? "#facc15"
+                    ? "#e8a95c"
                     : entry.kind === "mode"
                       ? "#a881ff"
                       : entry.kind === "roll"

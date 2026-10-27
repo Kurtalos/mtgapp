@@ -154,7 +154,7 @@ function sampleProcess() {
 }
 
 async function main() {
-  console.log(`\nMana Table load test → ${BASE}`);
+  console.log(`\nCards with Kurt load test → ${BASE}`);
   console.log(`  ${ROOMS} simultaneous games × ${PLAYERS} players = ${ROOMS * PLAYERS} live connections`);
   console.log(`  ${DURATION}s of active play at ~${THINK_MS}ms between taps\n`);
 

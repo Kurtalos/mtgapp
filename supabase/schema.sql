@@ -1,5 +1,5 @@
 -- ===========================================================================
--- Mana Table — Supabase schema
+-- Cards with Kurt & Friends — Supabase schema
 -- ===========================================================================
 -- Paste this whole file into the Supabase SQL editor and hit Run.
 -- It is safe to run more than once.

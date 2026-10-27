@@ -131,13 +131,19 @@ export default function Home() {
         <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-mana/30 bg-mana/10 text-2xl">
           🎴
         </div>
-        <h1 className="text-4xl font-black leading-none tracking-tighter">
-          MANA<span className="text-mana">TABLE</span>
+        {/* The wordmark: condensed caps for the name, a serif italic for the
+            invitation. Sized in clamp so it stays on one line on a small
+            phone without dropping to a size nobody can read. */}
+        <h1 className="text-[clamp(1.55rem,7.6vw,2.15rem)] font-black leading-none tracking-tight">
+          CARDS <span className="text-mana">WITH</span> KURT
         </h1>
+        <p className="mt-1 font-serif text-[1.35rem] italic leading-none text-cream/90">
+          &amp; Friends
+        </p>
+        <div className="mx-auto mt-4 h-px w-16 bg-mana/40" />
         <p className="mt-3 text-sm leading-relaxed text-slate-400">
-          A shared life counter for Commander, Planechase, Archenemy and
-          Kingdoms. Create a table, share the code, everyone joins from their
-          phone.
+          Commander, Planechase, Archenemy and Kingdoms. One code, and every
+          life total at the table stays in sync.
         </p>
       </header>
 

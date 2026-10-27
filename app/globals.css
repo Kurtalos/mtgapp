@@ -1,18 +1,28 @@
 @import "tailwindcss";
 
 @theme {
-  --color-ink: #06070c;
-  --color-surface: #0e1018;
-  --color-surface-2: #151827;
-  --color-surface-3: #1c2033;
-  --color-line: #262b40;
-  --color-mana: #00f296;
-  --color-mana-dim: #0b3d2c;
-  --color-violet: #a881ff;
-  --color-amber: #facc15;
-  --color-danger: #ff5d6c;
+  /* Cards with Kurt & Friends — gold on indigo, warmed at the edges.
+     `mana` is the single accent token: every button, badge, focus ring and
+     highlight reads from it, so the brand lives in one place. */
+  --color-ink: #0b0a12;
+  --color-surface: #14121f;
+  --color-surface-2: #1c1930;
+  --color-surface-3: #262141;
+  --color-line: #332c4d;
+  --color-mana: #d9b45e;
+  --color-mana-dim: #3a2f14;
+  --color-cream: #f2e8d6;
+  --color-violet: #a78bfa;
+  /* Amber sits deliberately warmer than the gold accent so a warning can
+     never be mistaken for a confirmation. */
+  --color-amber: #e8a95c;
+  --color-danger: #d4574f;
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, sans-serif;
+  /* Used only for the "& Friends" half of the wordmark. No download: every
+     platform ships a serviceable serif, and this is six words of text. */
+  --font-serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia,
+    ui-serif, serif;
 }
 
 :root {
@@ -28,11 +38,11 @@ body {
 
 body {
   background:
-    radial-gradient(1200px 600px at 50% -10%, #16203a 0%, transparent 60%),
-    radial-gradient(900px 500px at 100% 100%, #14261f 0%, transparent 55%),
+    radial-gradient(1200px 600px at 50% -10%, #241f45 0%, transparent 60%),
+    radial-gradient(900px 500px at 100% 100%, #2b2138 0%, transparent 55%),
     var(--color-ink);
   background-attachment: fixed;
-  color: #f5f7fb;
+  color: #f2eee7;
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   overscroll-behavior-y: none;
@@ -87,11 +97,11 @@ button {
 
 .btn-primary {
   background: var(--color-mana);
-  color: #04140d;
+  color: #1a1408;
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: #25ffab;
+  background: #e6c877;
 }
 
 .btn-ghost {
@@ -117,7 +127,7 @@ button {
 }
 
 .field::placeholder {
-  color: #596180;
+  color: #6b6488;
 }
 
 .field:focus {
@@ -130,7 +140,7 @@ button {
   font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: #8b93ad;
+  color: #9a92b8;
   margin-bottom: 0.4rem;
 }
 
@@ -171,13 +181,13 @@ button {
 
 @keyframes pulse-ring {
   0% {
-    box-shadow: 0 0 0 0 rgba(0, 242, 150, 0.35);
+    box-shadow: 0 0 0 0 rgba(217, 180, 94, 0.4);
   }
   70% {
-    box-shadow: 0 0 0 12px rgba(0, 242, 150, 0);
+    box-shadow: 0 0 0 12px rgba(217, 180, 94, 0);
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(0, 242, 150, 0);
+    box-shadow: 0 0 0 0 rgba(217, 180, 94, 0);
   }
 }
 
@@ -196,8 +206,8 @@ button {
 
 .chaos-glow {
   box-shadow:
-    0 0 0 1px rgba(168, 129, 255, 0.5),
-    0 0 40px -8px rgba(168, 129, 255, 0.75);
+    0 0 0 1px rgba(167, 139, 250, 0.5),
+    0 0 40px -8px rgba(167, 139, 250, 0.75);
 }
 
 .scrollbar-thin::-webkit-scrollbar {
@@ -206,7 +216,7 @@ button {
 }
 
 .scrollbar-thin::-webkit-scrollbar-thumb {
-  background: #2c3250;
+  background: #3a3358;
   border-radius: 99px;
 }
 

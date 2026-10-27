@@ -1,4 +1,4 @@
-# Deploying Mana Table on a VPS
+# Deploying Cards with Kurt & Friends on a VPS
 
 > **Starting from a bare Ubuntu server?** Follow **[INSTALL.md](INSTALL.md)**
 > instead — it is the same process written as a numbered, copy-paste checklist
@@ -131,7 +131,7 @@ For people who would rather not run containers.
 curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
 sudo apt install -y nodejs nginx
 
-sudo useradd -r -s /usr/sbin/nologin -d /opt/mtgapp manatable
+sudo useradd -r -s /usr/sbin/nologin -d /opt/mtgapp cards
 sudo git clone https://github.com/Kurtalos/mtgapp.git /opt/mtgapp
 cd /opt/mtgapp
 sudo npm ci
@@ -143,25 +143,25 @@ sudo cp -r public .next/standalone/public
 sudo cp -r .next/static .next/standalone/.next/static
 
 # Where rooms are stored.
-sudo mkdir -p /var/lib/mana-table
-sudo chown -R manatable:manatable /opt/mtgapp /var/lib/mana-table
+sudo mkdir -p /var/lib/cards-with-kurt
+sudo chown -R cards:cards /opt/mtgapp /var/lib/cards-with-kurt
 ```
 
-`/etc/systemd/system/mana-table.service`:
+`/etc/systemd/system/cards-with-kurt.service`:
 
 ```ini
 [Unit]
-Description=Mana Table
+Description=Cards with Kurt & Friends
 After=network.target
 
 [Service]
 Type=simple
-User=manatable
+User=cards
 WorkingDirectory=/opt/mtgapp/.next/standalone
 Environment=NODE_ENV=production
 Environment=PORT=3000
 Environment=HOSTNAME=127.0.0.1
-Environment=DATA_DIR=/var/lib/mana-table
+Environment=DATA_DIR=/var/lib/cards-with-kurt
 ExecStart=/usr/bin/node server.js
 Restart=always
 RestartSec=3
@@ -173,10 +173,10 @@ WantedBy=multi-user.target
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now mana-table
+sudo systemctl enable --now cards-with-kurt
 ```
 
-nginx (`/etc/nginx/sites-available/mana-table`):
+nginx (`/etc/nginx/sites-available/cards-with-kurt`):
 
 ```nginx
 server {
@@ -199,7 +199,7 @@ server {
 ```
 
 ```bash
-sudo ln -s /etc/nginx/sites-available/mana-table /etc/nginx/sites-enabled/
+sudo ln -s /etc/nginx/sites-available/cards-with-kurt /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
 sudo apt install -y certbot python3-certbot-nginx
 sudo certbot --nginx -d mtg.example.com
@@ -275,10 +275,10 @@ Everything is in one directory of small JSON files. Backing up is a tar:
 # because the volume is named <project>_manatable-data and the project name
 # comes from the directory you cloned into.
 cd mtgapp
-docker compose exec -T app tar czf - -C /app .data > ~/manatable-$(date +%F).tar.gz
+docker compose exec -T app tar czf - -C /app .data > ~/cards-with-kurt-$(date +%F).tar.gz
 
 # systemd install
-sudo tar czf ~/manatable-$(date +%F).tar.gz -C /var/lib/mana-table .
+sudo tar czf ~/cards-with-kurt-$(date +%F).tar.gz -C /var/lib/cards-with-kurt .
 ```
 
 Put that in a weekly cron and copy it off the box. Rooms older than seven days

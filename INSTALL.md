@@ -1,4 +1,4 @@
-# Installing Mana Table on a fresh Ubuntu VPS
+# Installing Cards with Kurt & Friends on a fresh Ubuntu VPS
 
 This is the from-zero guide: you have an Ubuntu server and nothing else. It
 takes about fifteen minutes and every block is copy-paste.
@@ -230,7 +230,7 @@ additions. Rooms are transient and are pruned after seven days anyway:
 
 ```bash
 cd /opt/mtgapp
-docker compose exec -T app tar czf - -C /app .data > ~/manatable-$(date +%F).tar.gz
+docker compose exec -T app tar czf - -C /app .data > ~/cards-with-kurt-$(date +%F).tar.gz
 ```
 
 Put that in a weekly cron and copy it off the box.
