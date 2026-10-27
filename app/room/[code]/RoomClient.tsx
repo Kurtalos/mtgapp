@@ -12,6 +12,7 @@ import {
 } from "@/lib/types";
 import { useRoom } from "@/lib/useRoom";
 import { useContent } from "@/lib/useContent";
+import { BrandMark } from "@/components/Brand";
 import { RollBanner } from "@/components/RollBanner";
 import { SpectatorView } from "@/components/SpectatorView";
 import { ROLES } from "@/lib/data/roles";
@@ -227,6 +228,9 @@ export function RoomClient({ code }: { code: string }) {
           onClick={copyCode}
           className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-line bg-surface-2 px-3 py-1.5 text-left"
         >
+          {/* The brand travels with the table: this is the screen every player
+              stares at for three hours, so it should look like the app. */}
+          <BrandMark className="h-[18px] w-[18px] shrink-0 opacity-80" />
           <div className="min-w-0 flex-1">
             <div className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">
               {meta.name} · {state.phase === "lobby" ? "Lobby" : state.phase === "finished" ? "Finished" : "In play"}
