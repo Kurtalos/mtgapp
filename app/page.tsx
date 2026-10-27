@@ -23,15 +23,6 @@ const MODES: GameMode[] = [
   "advanced",
 ];
 
-/** Short label for the format chips; the full names do not fit on one line. */
-const CHIP_LABEL: Record<GameMode, string> = {
-  commander: "Commander",
-  planechase: "Planechase",
-  archenemy: "Archenemy",
-  kingdom: "Kingdoms",
-  advanced: "Advanced",
-};
-
 /** Codes are minted at this length. Longer ones still paste in — see the boxes. */
 const CODE_LENGTH = 5;
 
@@ -274,10 +265,12 @@ export default function Home() {
         />
 
         <div className="label mt-4">Format</div>
-        {/* Horizontal on purpose: five formats do not fit in a 2x2 grid without
-            a ragged hole, and this keeps the name and the controls in one
-            screenful. */}
-        <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {/* These wrap rather than scroll sideways.
+            A horizontal scroller looked tidy, but with the scrollbar hidden
+            there is nothing to grab with a mouse and no gesture on a desktop —
+            the fifth format sat half-visible and unreachable. Wrapping costs a
+            second line and makes every format reachable everywhere. */}
+        <div className="flex flex-wrap gap-2">
           {MODES.map((id) => {
             const active = mode === id;
             return (
@@ -285,13 +278,13 @@ export default function Home() {
                 key={id}
                 onClick={() => chooseMode(id)}
                 aria-pressed={active}
-                className={`shrink-0 rounded-full border px-3.5 py-2 text-[12px] font-bold transition-colors ${
+                className={`rounded-full border px-3.5 py-2 text-[12px] font-bold transition-colors ${
                   active
                     ? "border-mana/50 bg-mana/10 text-mana"
-                    : "border-line bg-transparent text-slate-400"
+                    : "border-line bg-transparent text-slate-400 hover:border-white/20 hover:text-slate-300"
                 }`}
               >
-                {CHIP_LABEL[id]}
+                {MODE_META[id].name}
               </button>
             );
           })}
