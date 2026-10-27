@@ -11,7 +11,7 @@ import {
   resetLifecycle,
   scheduleRoomClose,
 } from "@/lib/server/lifecycle";
-import { resetHub, subscribe } from "@/lib/server/hub";
+import { broadcastClosed, presenceFor, publish, resetHub, subscribe } from "@/lib/server/hub";
 import { createRoom, readRoom } from "@/lib/server/store";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -97,5 +97,51 @@ describe("closing rooms the whole table has left", () => {
 
     back();
     assert.equal(pendingRoomClose("ROOM6"), true);
+  });
+});
+
+describe("closing a room from the admin panel", () => {
+  afterEach(() => {
+    resetLifecycle();
+    resetHub();
+  });
+
+  it("tells every phone watching, and forgets them", async () => {
+    await createRoom("CLOSE1", { phase: "playing" });
+    const events: string[] = [];
+    const stop = subscribe("CLOSE1", {
+      id: "one",
+      playerId: "p1",
+      name: "Kurt",
+      send: (event) => events.push(event),
+    });
+    subscribe("CLOSE1", {
+      id: "two",
+      playerId: "p2",
+      name: "Ada",
+      send: (event) => events.push(event),
+    });
+
+    events.length = 0;
+    broadcastClosed("CLOSE1");
+
+    assert.deepEqual(events, ["closed", "closed"]);
+    // Nobody is left, so a later write has nobody to notify and the room is no
+    // longer considered occupied.
+    assert.deepEqual(presenceFor("CLOSE1"), []);
+    publish("CLOSE1", {
+      code: "CLOSE1",
+      state: { phase: "playing" } as never,
+      version: 2,
+      updatedAt: new Date().toISOString(),
+    });
+    assert.deepEqual(events, ["closed", "closed"]);
+
+    // Unsubscribing after the room is gone must not throw.
+    stop();
+  });
+
+  it("is a no-op for a room nobody is watching", () => {
+    broadcastClosed("NOBODY");
   });
 });

@@ -210,9 +210,11 @@ export function RoomClient({ code }: { code: string }) {
   const { state } = room;
   const meta = MODE_META[state.mode];
 
+  // Phone: one narrow column. Desktop: wide enough for the table and the mode
+  // panel to sit side by side, so neither is buried behind a tab.
   return (
     <main
-      className="mx-auto flex min-h-screen w-full max-w-xl flex-col px-3 pb-6"
+      className="mx-auto flex min-h-screen w-full max-w-xl flex-col px-3 pb-6 lg:max-w-5xl lg:px-6 lg:pb-10"
       style={{ paddingTop: "calc(0.75rem + var(--sat))" }}
     >
       {/* ---------------------------------------------------------------- header */}
@@ -289,112 +291,119 @@ export function RoomClient({ code }: { code: string }) {
         <SpectatorView state={state} onlineIds={onlineIds} />
       ) : (
         <>
-          {/* ------------------------------------------------------------- players */}
-          <div
-            className={`mb-3 grid gap-2 ${
-              players.length <= 2 ? "grid-cols-1" : "grid-cols-2"
-            }`}
-          >
-            {players.map((player) => (
-              <PlayerTile
-                key={player.id}
-                player={player}
-                state={state}
-                isMe={player.id === meId}
-                // Anyone seated may touch any total (damage is aimed
-                // outward); only your own, or the host, may raise one.
-                canEdit={Boolean(me)}
-                canIncrease={isHost || player.id === meId}
-                isOnline={onlineIds.size === 0 || onlineIds.has(player.id)}
-                onAdjust={(delta) =>
-                  dispatch({
-                    type: "adjustLife",
-                    playerId: player.id,
-                    delta,
-                    byPlayerId: meId,
-                  })
-                }
-                onOpen={() => setSheetId(player.id)}
-              />
-            ))}
-          </div>
-
-          {/* ----------------------------------------------------------------- tabs */}
-          <div className="mb-3 flex gap-1 rounded-xl bg-surface-2 p-1">
-            {(
-              [
-                { id: "table", label: "Table" },
-                { id: "mode", label: meta.name },
-                { id: "log", label: "Log" },
-              ] as Array<{ id: Tab; label: string }>
-            ).map((item) => (
-              <button
-                key={item.id}
-                onClick={() => setTab(item.id)}
-                className={`flex-1 rounded-lg px-2 py-2 text-[11px] font-extrabold uppercase tracking-wide transition-colors ${
-                  tab === item.id ? "bg-mana text-black" : "text-slate-400"
+          {/* Phone: tiles, then the tab strip underneath.
+              Desktop: the table on the left, the panel on the right, so a
+              player can see the board and the mode at the same time. */}
+          <div className="lg:grid lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:items-start lg:gap-4">
+              {/* ------------------------------------------------------------- players */}
+              <div
+                className={`mb-3 grid gap-2 lg:mb-0 ${
+                  players.length <= 2 ? "grid-cols-1" : "grid-cols-2"
                 }`}
               >
-                {item.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex-1">
-            {tab === "table" && (
-              <TableTab
-                state={state}
-                meId={meId}
-                isHost={isHost}
-                dispatch={dispatch}
-                onOpenPlayer={setSheetId}
-                onTools={() => setToolsOpen(true)}
-              />
-            )}
-
-            {tab === "mode" && (
-              <div className="space-y-3">
-                {state.mode === "planechase" && (
-                  <PlanechasePanel
+                {players.map((player) => (
+                  <PlayerTile
+                    key={player.id}
+                    player={player}
                     state={state}
-                    dispatch={dispatch}
-                    canAct={Boolean(me)}
-                    myId={meId}
+                    isMe={player.id === meId}
+                    // Anyone seated may touch any total (damage is aimed
+                    // outward); only your own, or the host, may raise one.
+                    canEdit={Boolean(me)}
+                    canIncrease={isHost || player.id === meId}
+                    isOnline={onlineIds.size === 0 || onlineIds.has(player.id)}
+                    onAdjust={(delta) =>
+                      dispatch({
+                        type: "adjustLife",
+                        playerId: player.id,
+                        delta,
+                        byPlayerId: meId,
+                      })
+                    }
+                    onOpen={() => setSheetId(player.id)}
                   />
-                )}
-                {state.mode === "archenemy" && (
-                  <ArchenemyPanel
-                    state={state}
-                    dispatch={dispatch}
-                    canAct={Boolean(me)}
-                    myId={meId}
-                    isHost={isHost}
-                  />
-                )}
-                {isKingdomMode(state.mode) && (
-                  <KingdomPanel
-                    state={state}
-                    dispatch={dispatch}
-                    myId={meId}
-                    isHost={isHost}
-                  />
-                )}
-                {state.mode === "commander" && (
-                  <div className="card p-4">
-                    <h3 className="text-sm font-extrabold">Commander</h3>
-                    <p className="mt-1 text-[11px] leading-relaxed text-slate-400">
-                      40 life, 21 commander damage from a single commander, and
-                      ten poison counters. Open any player and switch to
-                      <b className="text-slate-200"> Cmdr dmg</b> to track damage
-                      per opponent.
-                    </p>
-                  </div>
-                )}
+                ))}
               </div>
-            )}
 
-            {tab === "log" && <LogTab state={state} />}
-          </div>
+              <div className="min-w-0">
+                {/* ----------------------------------------------------------------- tabs */}
+                <div className="mb-3 flex gap-1 rounded-xl bg-surface-2 p-1">
+                  {(
+                    [
+                      { id: "table", label: "Table" },
+                      { id: "mode", label: meta.name },
+                      { id: "log", label: "Log" },
+                    ] as Array<{ id: Tab; label: string }>
+                  ).map((item) => (
+                    <button
+                      key={item.id}
+                      onClick={() => setTab(item.id)}
+                      className={`flex-1 rounded-lg px-2 py-2 text-[11px] font-extrabold uppercase tracking-wide transition-colors ${
+                        tab === item.id ? "bg-mana text-black" : "text-slate-400"
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex-1">
+                  {tab === "table" && (
+                    <TableTab
+                      state={state}
+                      meId={meId}
+                      isHost={isHost}
+                      dispatch={dispatch}
+                      onOpenPlayer={setSheetId}
+                      onTools={() => setToolsOpen(true)}
+                    />
+                  )}
+
+                  {tab === "mode" && (
+                    <div className="space-y-3">
+                      {state.mode === "planechase" && (
+                        <PlanechasePanel
+                          state={state}
+                          dispatch={dispatch}
+                          canAct={Boolean(me)}
+                          myId={meId}
+                        />
+                      )}
+                      {state.mode === "archenemy" && (
+                        <ArchenemyPanel
+                          state={state}
+                          dispatch={dispatch}
+                          canAct={Boolean(me)}
+                          myId={meId}
+                          isHost={isHost}
+                        />
+                      )}
+                      {isKingdomMode(state.mode) && (
+                        <KingdomPanel
+                          state={state}
+                          dispatch={dispatch}
+                          myId={meId}
+                          isHost={isHost}
+                        />
+                      )}
+                      {state.mode === "commander" && (
+                        <div className="card p-4">
+                          <h3 className="text-sm font-extrabold">Commander</h3>
+                          <p className="mt-1 text-[11px] leading-relaxed text-slate-400">
+                            40 life, 21 commander damage from a single commander, and
+                            ten poison counters. Open any player and switch to
+                            <b className="text-slate-200"> Cmdr dmg</b> to track damage
+                            per opponent.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {tab === "log" && <LogTab state={state} />}
+                </div>
+              </div>
+            </div>
         </>
       )}
 
@@ -665,7 +674,7 @@ function LobbyView({
   };
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 lg:grid lg:grid-cols-2 lg:items-start lg:gap-3 lg:space-y-0">
       <div className="card p-4">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-extrabold uppercase tracking-wider text-slate-300">

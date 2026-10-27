@@ -16,7 +16,7 @@ import {
 import { invalidateContent } from "@/lib/useContent";
 import { Badge } from "@/components/ui";
 
-type Tab = "planes" | "schemes" | "classes" | "kingdom";
+type Tab = "planes" | "schemes" | "classes" | "kingdom" | "rooms";
 
 const empty: ContentBundle = { planes: [], schemes: [], classes: [] };
 
@@ -25,6 +25,7 @@ const TABS: Array<{ id: Tab; label: string }> = [
   { id: "schemes", label: "Schemes" },
   { id: "classes", label: "Classes" },
   { id: "kingdom", label: "Kingdom" },
+  { id: "rooms", label: "Rooms" },
 ];
 
 function slug(value: string): string {
@@ -123,7 +124,7 @@ export function AdminClient() {
         required={tokenRequired}
       />
 
-      <div className="mb-4 grid grid-cols-4 gap-1 rounded-xl bg-surface-2 p-1">
+      <div className="mb-4 grid grid-cols-5 gap-1 rounded-xl bg-surface-2 p-1">
         {TABS.map((item) => (
           <button
             key={item.id}
@@ -172,9 +173,206 @@ export function AdminClient() {
             />
           )}
           {tab === "kingdom" && <KingdomTab />}
+          {tab === "rooms" && <RoomsTab token={token} />}
         </>
       )}
     </main>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+
+interface RoomRow {
+  code: string;
+  mode: string;
+  phase: string;
+  players: number;
+  maxPlayers: number;
+  hostName: string;
+  updatedAt: string;
+  bytes: number;
+}
+
+function ago(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return "unknown";
+  const minutes = Math.max(0, Math.round((Date.now() - then) / 60000));
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  return `${Math.round(hours / 24)} d ago`;
+}
+
+function size(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  return `${(bytes / 1024).toFixed(1)} kB`;
+}
+
+/**
+ * Live rooms, and a way to close them.
+ *
+ * The app already deletes a room once the whole table has left it, but that
+ * only covers the tidy case. This is the manual override: a game abandoned
+ * mid-swing, a code read out wrong, a test room left behind. Closing one tells
+ * every phone still watching to go back to the lobby instead of leaving them on
+ * a board that can no longer be saved.
+ */
+function RoomsTab({ token }: { token: string }) {
+  const [rooms, setRooms] = useState<RoomRow[] | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      const response = await fetch("/api/rt/rooms", {
+        headers: { "x-admin-token": token },
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        setError(
+          response.status === 401
+            ? "The admin token was rejected. Check the box at the top of the page."
+            : `Could not list rooms (${response.status}).`,
+        );
+        setRooms([]);
+        return;
+      }
+      const payload = (await response.json()) as { rooms?: RoomRow[] };
+      setRooms(payload.rooms ?? []);
+    } catch {
+      setError("Could not reach the server.");
+      setRooms([]);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const close = async (code: string) => {
+    setBusy(code);
+    setError(null);
+    setNotice(null);
+    try {
+      const response = await fetch(`/api/rt/rooms/${code}`, {
+        method: "DELETE",
+        headers: { "x-admin-token": token },
+      });
+      if (!response.ok && response.status !== 404) {
+        setError(`Could not close ${code} (${response.status}).`);
+        return;
+      }
+      setNotice(`${code} closed.`);
+      setRooms((current) => (current ?? []).filter((room) => room.code !== code));
+      setConfirming(null);
+    } catch {
+      setError("Could not reach the server.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="card p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-extrabold uppercase tracking-wider text-slate-300">
+              Open rooms
+            </h2>
+            <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+              Rooms clean themselves up once everyone has gone. Close one here if
+              a table was abandoned mid-game, or a code needs to stop working
+              now.
+            </p>
+          </div>
+          <button
+            onClick={() => void load()}
+            className="btn btn-ghost shrink-0 px-3 py-1.5 text-[11px]"
+          >
+            Refresh
+          </button>
+        </div>
+
+        {notice && (
+          <p className="mt-3 rounded-lg border border-mana/25 bg-mana/10 px-2.5 py-2 text-[11px] font-semibold text-mana">
+            {notice}
+          </p>
+        )}
+        {error && (
+          <p className="mt-3 rounded-lg border border-danger/30 bg-danger/10 px-2.5 py-2 text-[11px] font-semibold text-danger">
+            {error}
+          </p>
+        )}
+      </div>
+
+      {rooms === null ? (
+        <p className="py-6 text-center text-xs text-slate-500">Loading rooms…</p>
+      ) : rooms.length === 0 ? (
+        <p className="rounded-xl border border-dashed border-line py-8 text-center text-xs text-slate-500">
+          No rooms on disk. Everyone has gone home.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {rooms.map((room) => (
+            <div key={room.code} className="card p-3">
+              <div className="flex items-center gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="tnum text-base font-black tracking-[0.18em] text-mana">
+                      {room.code}
+                    </span>
+                    <Badge tone={room.phase === "playing" ? "violet" : "neutral"}>
+                      {room.phase}
+                    </Badge>
+                  </div>
+                  <p className="mt-0.5 text-[11px] text-slate-500">
+                    {room.mode} · {room.players}/{room.maxPlayers} seats ·{" "}
+                    {room.hostName} · {ago(room.updatedAt)} · {size(room.bytes)}
+                  </p>
+                </div>
+
+                {confirming === room.code ? (
+                  <div className="flex shrink-0 gap-1.5">
+                    <button
+                      onClick={() => setConfirming(null)}
+                      className="btn btn-ghost px-2.5 py-1.5 text-[11px]"
+                    >
+                      Keep
+                    </button>
+                    <button
+                      onClick={() => void close(room.code)}
+                      disabled={busy === room.code}
+                      className="btn bg-danger px-2.5 py-1.5 text-[11px] font-bold text-black disabled:opacity-50"
+                    >
+                      {busy === room.code ? "Closing…" : "Close it"}
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setConfirming(room.code)}
+                    className="btn btn-ghost shrink-0 px-3 py-1.5 text-[11px] text-danger/90"
+                  >
+                    Close room
+                  </button>
+                )}
+              </div>
+
+              {confirming === room.code && (
+                <p className="mt-2 text-[10px] leading-snug text-amber">
+                  This deletes the room and every life total in it. Anyone still
+                  on that phone is sent back to the lobby. It cannot be undone.
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

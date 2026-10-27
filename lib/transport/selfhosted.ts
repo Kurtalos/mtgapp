@@ -5,6 +5,7 @@ import type { PresencePlayer, RoomTransport, SaveResult } from "./types";
 interface Connection {
   source: EventSource;
   roomListeners: Set<(room: StoredRoom) => void>;
+  closedListeners: Set<() => void>;
   presenceListeners: Set<(players: PresencePlayer[]) => void>;
   lastRoom: StoredRoom | null;
   lastPresence: PresencePlayer[] | null;
@@ -123,6 +124,36 @@ export class SelfHostedTransport implements RoomTransport {
     return () => this.release(code, "room", onChange);
   }
 
+  /**
+   * Fire when the server says this room was closed.
+   *
+   * The event arrives on the same stream the room updates use, so a phone that
+   * is sitting on a dead table finds out immediately instead of showing a
+   * frozen board until its next write.
+   */
+  onClosed(code: string, onClose: () => void): () => void {
+    if (typeof window === "undefined") return () => {};
+    const connection = this.ensureConnection(code);
+    connection.closedListeners.add(onClose);
+    connection.refs += 1;
+
+    return () => {
+      const current = this.connections.get(code);
+      if (!current) return;
+      current.closedListeners.delete(onClose);
+      current.refs -= 1;
+      if (
+        current.refs <= 0 &&
+        current.roomListeners.size === 0 &&
+        current.presenceListeners.size === 0 &&
+        current.closedListeners.size === 0
+      ) {
+        current.source.close();
+        this.connections.delete(code);
+      }
+    };
+  }
+
   watchPresence(
     code: string,
     me: PresencePlayer,
@@ -154,6 +185,7 @@ export class SelfHostedTransport implements RoomTransport {
     const connection: Connection = {
       source,
       roomListeners: new Set(),
+      closedListeners: new Set(),
       presenceListeners: new Set(),
       lastRoom: null,
       lastPresence: null,
@@ -168,6 +200,14 @@ export class SelfHostedTransport implements RoomTransport {
       } catch {
         /* ignore malformed frame */
       }
+    });
+
+    source.addEventListener("closed", () => {
+      connection.lastRoom = null;
+      for (const listener of connection.closedListeners) listener();
+      // Nothing left to hear from this room.
+      source.close();
+      this.connections.delete(code);
     });
 
     source.addEventListener("presence", (event) => {

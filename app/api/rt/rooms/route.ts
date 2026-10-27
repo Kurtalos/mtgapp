@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { createRoom } from "@/lib/server/store";
+import { createRoom, listRooms } from "@/lib/server/store";
+import { isAuthorised } from "@/lib/server/content-store";
 import { publish } from "@/lib/server/hub";
 import type { StoredRoom } from "@/lib/types";
 
@@ -7,6 +8,20 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const CODE_PATTERN = /^[A-Z0-9]{4,8}$/;
+
+/**
+ * Admin: every room on disk.
+ *
+ * Guarded because a room code is the only thing standing between a stranger and
+ * a table — listing them all would hand out every game in progress.
+ */
+export async function GET(request: Request) {
+  if (!isAuthorised(request)) {
+    return NextResponse.json({ error: "Bad or missing admin token" }, { status: 401 });
+  }
+  const rooms = await listRooms();
+  return NextResponse.json({ rooms }, { headers: { "Cache-Control": "no-store" } });
+}
 
 export async function POST(request: Request) {
   let body: { code?: string; state?: unknown };

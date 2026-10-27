@@ -32,6 +32,12 @@ export interface RoomTransport {
     expectedVersion: number,
   ): Promise<SaveResult>;
   subscribe(code: string, onChange: (room: StoredRoom) => void): () => void;
+  /**
+   * Called when the backend says this room no longer exists — closed by an
+   * admin, not merely unwritten. Optional: a backend that cannot tell us is
+   * still correct, the client just finds out on its next read.
+   */
+  onClosed?(code: string, onClose: () => void): () => void;
   watchPresence(
     code: string,
     me: PresencePlayer,

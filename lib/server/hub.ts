@@ -65,6 +65,23 @@ export function presenceFor(code: string) {
   }));
 }
 
+/**
+ * Tell every phone watching a room that it has been closed, then forget them.
+ *
+ * The streams end up closed by the clients, but dropping the map entry here
+ * means a subscriber that never reacts cannot keep the room "occupied" and stop
+ * the empty-room cleanup from running.
+ */
+export function broadcastClosed(code: string) {
+  const current = rooms.get(code);
+  if (!current) return;
+  for (const subscriber of current.values()) {
+    subscriber.send("closed", { code });
+  }
+  rooms.delete(code);
+  cancelRoomClose(code);
+}
+
 function broadcastPresence(code: string) {
   const current = rooms.get(code);
   if (!current) return;

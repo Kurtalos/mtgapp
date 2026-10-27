@@ -38,8 +38,9 @@ export function SpectatorView({
         </span>
       </div>
 
-      {/* Life totals, read-only */}
-      <div className={`grid gap-2 ${sound}`}>
+      {/* Life totals, read-only. Desktop has room for a third column rather
+          than stretching two tiles across the whole width. */}
+      <div className={`grid gap-2 ${sound} lg:grid-cols-3`}>
         {players.map((player) => (
           <PlayerTile
             key={player.id}

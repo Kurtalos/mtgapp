@@ -76,9 +76,19 @@ export function useRoom(code: string): UseRoom {
       setStatus("ready");
     });
 
+    // An admin can close a room out from under the table. When that happens the
+    // phones should say so straight away rather than sit on a board that can no
+    // longer be saved.
+    const unwatchClosed = transport.onClosed?.(code, () => {
+      roomRef.current = null;
+      setRoom(null);
+      setStatus("missing");
+    });
+
     return () => {
       cancelled = true;
       unsubscribe();
+      unwatchClosed?.();
     };
   }, [adopt, code, load, transport]);
 
