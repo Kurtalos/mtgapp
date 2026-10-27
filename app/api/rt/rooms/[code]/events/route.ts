@@ -41,6 +41,14 @@ export async function GET(
 
   const encoder = new TextEncoder();
   let closed = false;
+  // Assigned once the stream is wired up inside start(). The stream can be torn
+  // down three ways — client cancellation, the request aborting, or a write
+  // failing — and all of them must unsubscribe: a subscriber we forget to drop
+  // keeps the room looking occupied, which also keeps the empty-room cleanup in
+  // lib/server/lifecycle.ts from ever running.
+  let teardown = () => {
+    closed = true;
+  };
 
   const stream = new ReadableStream({
     start(controller) {
@@ -49,7 +57,10 @@ export async function GET(
         try {
           controller.enqueue(encoder.encode(chunk));
         } catch {
+          // The socket is gone. Tear down properly rather than sitting in the
+          // presence list forever as a player who is not really there.
           closed = true;
+          teardown();
         }
       };
 
@@ -80,8 +91,10 @@ export async function GET(
         write(`: keep-alive\n\n`);
       }, HEARTBEAT_MS);
 
+      let tornDown = false;
       const cleanup = () => {
-        if (closed) return;
+        if (tornDown) return;
+        tornDown = true;
         closed = true;
         clearInterval(heartbeat);
         unsubscribe();
@@ -91,11 +104,12 @@ export async function GET(
           /* already closed */
         }
       };
+      teardown = cleanup;
 
       request.signal.addEventListener("abort", cleanup);
     },
     cancel() {
-      closed = true;
+      teardown();
     },
   });
 

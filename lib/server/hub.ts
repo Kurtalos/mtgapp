@@ -1,4 +1,5 @@
 import type { StoredRoom } from "@/lib/types";
+import { cancelRoomClose, resetLifecycle, scheduleRoomClose } from "./lifecycle";
 
 /**
  * In-process fan-out for live rooms.
@@ -23,6 +24,10 @@ export interface Subscriber {
 const rooms = new Map<string, Map<string, Subscriber>>();
 
 export function subscribe(code: string, subscriber: Subscriber): () => void {
+  // A phone that is reconnecting (refresh, screen unlock, flaky signal) must not
+  // lose the table to the cleanup below.
+  cancelRoomClose(code);
+
   const existing = rooms.get(code) ?? new Map<string, Subscriber>();
   existing.set(subscriber.id, subscriber);
   rooms.set(code, existing);
@@ -32,8 +37,13 @@ export function subscribe(code: string, subscriber: Subscriber): () => void {
     const current = rooms.get(code);
     if (!current) return;
     current.delete(subscriber.id);
-    if (current.size === 0) rooms.delete(code);
-    else broadcastPresence(code);
+    if (current.size === 0) {
+      rooms.delete(code);
+      // Last phone gone. Give everyone a minute to come back before the room is
+      // deleted; the reaper asks this map again when the timer fires, since a
+      // reconnect can land at any moment.
+      scheduleRoomClose(code, () => (rooms.get(code)?.size ?? 0) === 0);
+    } else broadcastPresence(code);
   };
 }
 
@@ -67,4 +77,5 @@ function broadcastPresence(code: string) {
 /** Test seam. */
 export function resetHub() {
   rooms.clear();
+  resetLifecycle();
 }
