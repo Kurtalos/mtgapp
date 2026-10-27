@@ -50,7 +50,7 @@ export type RoomAction =
     }
   | { type: "reset"; byId: string; seed?: number }
   | { type: "adjustLife"; playerId: string; delta: number; byPlayerId?: string }
-  | { type: "setLife"; playerId: string; value: number }
+  | { type: "setLife"; playerId: string; value: number; byPlayerId?: string }
   | { type: "adjustCommanderDamage"; sourceId: string; targetId: string; delta: number }
   | { type: "adjustPoison"; playerId: string; delta: number }
   | {
@@ -186,6 +186,15 @@ function settle(state: RoomState): { state: RoomState; deaths: string[] } {
 /**
  * Kingdoms: if the King has just been killed by the Usurper's own hand, the
  * two swap places instead of the game ending.
+ */
+/**
+ * The classic six-player Usurper's throne swap.
+ *
+ * Note: since life changes are restricted to "your own, or the host's", the
+ * only actors who can move the King's life are the King and the host — so a
+ * Usurper can never be the crediting attacker here, and this no longer fires
+ * from the app. It is kept because the mechanic is still correct, and a future
+ * "record damage from…" control would reach it again.
  */
 function maybeUsurp(state: RoomState, kingId: string, byId?: string): RoomState {
   if (state.mode !== "kingdom" || !byId || byId === kingId) return state;
@@ -341,6 +350,30 @@ function advancedRolesFor(playerCount: number): RoleId[] {
   push("assassin", setup.assassin);
   push("renegade", setup.renegade);
   return bag;
+}
+
+/**
+ * Who is allowed to change a life total.
+ *
+ * The host may correct anyone's life — that is the whole point of a host — and
+ * every other player may only change their own. Without this a stray tap on the
+ * next tile along silently rewrites somebody else's game.
+ *
+ * This is a correctness guard, not a security boundary. The room document is
+ * written by the clients themselves, so a determined player could PUT whatever
+ * state they liked straight to the API. What this stops is the failure that
+ * actually happens at a table: a mis-wired control, or a thumb on the wrong
+ * tile. Real enforcement would mean moving the game server-side, which is a
+ * much larger change than this rule is worth.
+ */
+export function canAdjustLife(
+  state: RoomState,
+  byId: string | undefined,
+  targetId: string,
+): boolean {
+  if (!byId) return false;
+  if (byId === state.hostId) return true;
+  return byId === targetId;
 }
 
 /** Expands {king: 1, bandit: 2, …} into the flat role bag to shuffle. */
@@ -602,6 +635,7 @@ export function applyAction(state: RoomState, action: RoomAction): RoomState {
 
     case "adjustLife": {
       if (state.phase === "lobby") return state;
+      if (!canAdjustLife(state, action.byPlayerId, action.playerId)) return state;
       let next: RoomState = withPlayer(state, action.playerId, (p) => ({
         ...p,
         life: p.life + action.delta,
@@ -624,6 +658,7 @@ export function applyAction(state: RoomState, action: RoomAction): RoomState {
     }
 
     case "setLife": {
+      if (!canAdjustLife(state, action.byPlayerId, action.playerId)) return state;
       const value = Math.round(action.value);
       if (!Number.isFinite(value)) return state;
       const next = withPlayer(state, action.playerId, (p) => ({ ...p, life: value }));
