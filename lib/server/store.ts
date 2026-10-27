@@ -144,6 +144,67 @@ export async function deleteRoom(code: string): Promise<boolean> {
   });
 }
 
+/** What the admin panel needs to know about a live room. */
+export interface RoomSummary {
+  code: string;
+  mode: string;
+  phase: string;
+  players: number;
+  maxPlayers: number;
+  hostName: string;
+  updatedAt: string;
+  /** Size on disk, so an operator can see which room is the heavy one. */
+  bytes: number;
+}
+
+/**
+ * Every room currently on disk, newest first.
+ *
+ * Deliberately tolerant: a half-written or hand-edited file is skipped rather
+ * than failing the whole listing, because this is the screen an operator opens
+ * when something has already gone wrong.
+ */
+export async function listRooms(): Promise<RoomSummary[]> {
+  await ensureDir();
+  const dir = dataDir();
+  const files = await fs.readdir(dir).catch(() => [] as string[]);
+  const rooms: RoomSummary[] = [];
+
+  for (const file of files) {
+    if (!file.endsWith(".json") || file.endsWith(".tmp")) continue;
+    const full = path.join(dir, file);
+    try {
+      const raw = await fs.readFile(full, "utf8");
+      const record = JSON.parse(raw) as StoredRoomRecord;
+      const state = record.state as {
+        mode?: string;
+        phase?: string;
+        players?: unknown[];
+        maxPlayers?: number;
+        hostId?: string;
+      } | null;
+      const host = state?.players?.find(
+        (p) => (p as { id?: string })?.id === state?.hostId,
+      ) as { name?: string } | undefined;
+
+      rooms.push({
+        code: record.code ?? file.replace(/\.json$/, ""),
+        mode: state?.mode ?? "unknown",
+        phase: state?.phase ?? "unknown",
+        players: state?.players?.length ?? 0,
+        maxPlayers: state?.maxPlayers ?? 0,
+        hostName: host?.name ?? "—",
+        updatedAt: record.updatedAt ?? new Date(0).toISOString(),
+        bytes: raw.length,
+      });
+    } catch {
+      // Unreadable room: leave it for pruneStaleRooms, do not break the list.
+    }
+  }
+
+  return rooms.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
 /** Deletes rooms nobody has touched for a week. Returns how many went. */
 export async function pruneStaleRooms(ttlMs = ROOM_TTL_MS): Promise<number> {
   await ensureDir();

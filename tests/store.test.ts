@@ -3,7 +3,14 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { before, describe, it } from "node:test";
-import { createRoom, deleteRoom, pruneStaleRooms, readRoom, saveRoom } from "@/lib/server/store";
+import {
+  createRoom,
+  deleteRoom,
+  listRooms,
+  pruneStaleRooms,
+  readRoom,
+  saveRoom,
+} from "@/lib/server/store";
 
 let dir: string;
 
@@ -106,6 +113,43 @@ describe("room store", () => {
     const again = await createRoom("GONE1", { life: 20 });
     assert.equal(again.ok, true);
     assert.deepEqual((await readRoom("GONE1"))?.state, { life: 20 });
+  });
+
+  it("lists rooms for the admin panel, newest first", async () => {
+    await createRoom("LIST1", {
+      mode: "commander",
+      phase: "playing",
+      maxPlayers: 4,
+      hostId: "p1",
+      players: [{ id: "p1", name: "Kurt" }, { id: "p2", name: "Ada" }],
+    });
+    // Make it unambiguously the newest of the three.
+    const later = new Date(Date.now() + 60_000).toISOString();
+    const file = path.join(dir, "LIST1.json");
+    const record = JSON.parse(await fs.readFile(file, "utf8"));
+    record.updatedAt = later;
+    await fs.writeFile(file, JSON.stringify(record));
+
+    const rooms = await listRooms();
+    const found = rooms.find((room) => room.code === "LIST1");
+    assert.ok(found);
+    assert.equal(found.mode, "commander");
+    assert.equal(found.phase, "playing");
+    assert.equal(found.players, 2);
+    assert.equal(found.maxPlayers, 4);
+    assert.equal(found.hostName, "Kurt");
+    assert.equal(found.updatedAt, later);
+    assert.ok(found.bytes > 0);
+    assert.equal(rooms[0].code, "LIST1");
+  });
+
+  it("skips a corrupt room file instead of failing the listing", async () => {
+    await fs.writeFile(path.join(dir, "BROKE.json"), "{ not json");
+    const rooms = await listRooms();
+    assert.equal(
+      rooms.some((room) => room.code === "BROKE"),
+      false,
+    );
   });
 
   it("fills in fields an older saved room never had", async () => {

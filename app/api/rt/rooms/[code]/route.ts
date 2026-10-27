@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { readRoom, saveRoom } from "@/lib/server/store";
-import { publish } from "@/lib/server/hub";
+import { deleteRoom, readRoom, saveRoom } from "@/lib/server/store";
+import { isAuthorised } from "@/lib/server/content-store";
+import { broadcastClosed, publish } from "@/lib/server/hub";
 import type { StoredRoom } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -83,4 +84,32 @@ export async function PUT(
   };
   publish(code, room);
   return NextResponse.json({ room });
+}
+
+/**
+ * Admin: close a room for good.
+ *
+ * This is the manual version of the empty-room cleanup — for a table that has
+ * been abandoned mid-game, a code somebody read out wrong, or a test room left
+ * lying around. Everyone still watching is told immediately, so their phone
+ * shows "table not found" instead of a frozen board.
+ */
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ code: string }> },
+) {
+  if (!isAuthorised(request)) {
+    return NextResponse.json({ error: "Bad or missing admin token" }, { status: 401 });
+  }
+
+  const code = normalise((await params).code);
+  if (!code) return NextResponse.json({ error: "Invalid room code" }, { status: 400 });
+
+  const removed = await deleteRoom(code);
+  if (!removed) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  broadcastClosed(code);
+  return NextResponse.json({ ok: true, code });
 }

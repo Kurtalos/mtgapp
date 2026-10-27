@@ -143,265 +143,297 @@ export default function Home() {
 
   return (
     <main
-      className="mx-auto flex min-h-screen w-full max-w-md flex-col px-4 pb-10"
+      className="mx-auto flex min-h-screen w-full max-w-md flex-col px-4 pb-10 lg:max-w-5xl lg:px-8 lg:pb-16"
       style={{ paddingTop: "calc(1.75rem + var(--sat))" }}
     >
-      <header className="mb-8 flex items-center justify-between">
+      <header className="mb-8 flex items-center justify-between lg:mb-12">
         <BrandLockup />
       </header>
 
-      <section className="mb-7">
-        <h1 className="text-[1.85rem] font-extrabold leading-[1.05] tracking-[-0.035em] text-white">
-          Got a code?
-          <span className="mt-0.5 block text-mana">Take a seat.</span>
-        </h1>
-        <p className="mt-3 max-w-[30ch] text-[13px] leading-relaxed text-slate-400">
-          Commander, Planechase, Archenemy and both Kingdoms. Every life total at
-          the table, in sync.
-        </p>
-      </section>
+      {/*
+        Phone: one column, in the order the job happens — code first, because
+        that is what five of the six people at a table actually need.
 
-      {/* ------------------------------------------------------------- join */}
-      <div
-        className="rounded-[1.25rem] border border-mana/25 p-4"
-        style={{
-          background:
-            "linear-gradient(180deg, rgba(28,25,48,0.9), rgba(20,18,31,0.9))",
-          boxShadow: "0 20px 40px -28px rgba(217,180,94,0.5)",
-        }}
-      >
-        <label
-          htmlFor="code"
-          className="mb-2.5 block text-[9.5px] font-extrabold uppercase tracking-[0.16em] text-slate-500"
-        >
-          Table code
-        </label>
+        Desktop (lg and up): the same two jobs side by side. There is room to
+        show joining and hosting at once, so nobody has to scroll to find the
+        one they wanted.
 
-        <div className="relative mb-3">
-          <div className="flex gap-2" aria-hidden="true">
-            {Array.from({ length: codeBoxes }).map((_, index) => {
-              const char = joinCode[index] ?? "";
-              const isCaret = codeFocused && index === joinCode.length;
+        The switch is a CSS breakpoint rather than a device sniff: it follows a
+        window being resized or a tablet being turned, and it renders the same
+        markup on the server and the client, so there is no flash of the wrong
+        layout while JavaScript loads.
+      */}
+      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)] lg:items-start lg:gap-12 xl:gap-16">
+        {/* ------------------------------------------------------ join column */}
+        <div className="min-w-0">
+          <section className="mb-7 lg:mb-8">
+            <h1 className="text-[1.85rem] font-extrabold leading-[1.05] tracking-[-0.035em] text-white lg:text-[2.75rem]">
+              Got a code?
+              <span className="mt-0.5 block text-mana">Take a seat.</span>
+            </h1>
+            <p className="mt-3 max-w-[30ch] text-[13px] leading-relaxed text-slate-400 lg:mt-4 lg:max-w-[36ch] lg:text-[14.5px]">
+              Commander, Planechase, Archenemy and both Kingdoms. Every life
+              total at the table, in sync.
+            </p>
+          </section>
+
+          <div
+            className="rounded-[1.25rem] border border-mana/25 p-4 lg:p-5"
+            style={{
+              background:
+                "linear-gradient(180deg, rgba(28,25,48,0.9), rgba(20,18,31,0.9))",
+              boxShadow: "0 20px 40px -28px rgba(217,180,94,0.5)",
+            }}
+          >
+            <label
+              htmlFor="code"
+              className="mb-2.5 block text-[9.5px] font-extrabold uppercase tracking-[0.16em] text-slate-500"
+            >
+              Table code
+            </label>
+
+            <div className="relative mb-3">
+              <div className="flex gap-2" aria-hidden="true">
+                {Array.from({ length: codeBoxes }).map((_, index) => {
+                  const char = joinCode[index] ?? "";
+                  const isCaret = codeFocused && index === joinCode.length;
+                  return (
+                    <span
+                      key={index}
+                      className={`flex h-[54px] flex-1 items-center justify-center rounded-xl border text-2xl font-extrabold tnum lg:h-[62px] lg:text-[26px] ${
+                        char
+                          ? "border-line bg-[#0f0d19] text-cream"
+                          : isCaret
+                            ? "border-mana bg-[#0f0d19] text-mana shadow-[0_0_0_3px_rgba(217,180,94,0.12)]"
+                            : "border-line bg-[#0f0d19] text-slate-700"
+                      }`}
+                    >
+                      {char}
+                    </span>
+                  );
+                })}
+              </div>
+
+              {/* The real input sits on top, fully transparent but still a
+                  normal input: one element to focus, so clicking anywhere in
+                  the row opens the keyboard and paste, backspace and
+                  autocomplete all behave. Deliberately not `opacity: 0` — some
+                  mobile browsers treat an invisible field as not worth focusing
+                  and skip the keyboard. */}
+              <input
+                id="code"
+                className="absolute inset-0 h-full w-full cursor-text rounded-xl border-0 bg-transparent p-0 text-base text-transparent caret-transparent outline-none selection:bg-transparent"
+                value={joinCode}
+                maxLength={8}
+                inputMode="text"
+                autoCapitalize="characters"
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
+                aria-label="Table code"
+                onChange={(event) =>
+                  setJoinCode(normaliseCode(event.target.value))
+                }
+                onFocus={() => setCodeFocused(true)}
+                onBlur={() => setCodeFocused(false)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && codeReady) void join();
+                }}
+              />
+            </div>
+
+            <button
+              onClick={join}
+              disabled={busy !== null || !hydrated || !codeReady}
+              className="btn btn-primary h-[50px] w-full text-[15px] lg:h-[54px]"
+            >
+              {busy === "join" ? "Opening…" : "Join the table"}
+            </button>
+
+            <label className="mt-3 flex cursor-pointer select-none items-center justify-center gap-2 text-[11px] text-slate-500">
+              <input
+                type="checkbox"
+                checked={watchOnly}
+                onChange={(event) => setWatchOnly(event.target.checked)}
+                className="h-3.5 w-3.5 rounded border-line bg-surface-2 accent-[#d9b45e]"
+              />
+              Watch as a spectator instead — no seat, no controls
+            </label>
+          </div>
+
+          <p className="mt-3 hidden text-[11px] leading-relaxed text-slate-600 lg:block">
+            No install and no accounts: the code is the whole invitation.
+          </p>
+        </div>
+
+        {/* ---------------------------------------------------- create column */}
+        <div className="min-w-0">
+          {/* Stacked, the two jobs need a divider. Side by side, they need a
+              heading instead. */}
+          <div className="my-6 flex items-center gap-3 text-[10px] font-extrabold uppercase tracking-[0.16em] text-slate-600 lg:hidden">
+            <span className="h-px flex-1 bg-gradient-to-r from-transparent to-line" />
+            or open your own
+            <span className="h-px flex-1 bg-gradient-to-l from-transparent to-line" />
+          </div>
+          <h2 className="mb-4 hidden text-[10px] font-extrabold uppercase tracking-[0.18em] text-slate-500 lg:block">
+            Or open your own
+          </h2>
+
+          <label className="label" htmlFor="name">
+            Your name
+          </label>
+          <input
+            id="name"
+            className="field h-[46px]"
+            placeholder="What should we call you?"
+            value={name}
+            maxLength={24}
+            onChange={(event) => setName(event.target.value)}
+            autoComplete="nickname"
+          />
+
+          <div className="label mt-4">Format</div>
+          {/* These wrap rather than scroll sideways. A horizontal scroller
+              looked tidy, but with the scrollbar hidden there is nothing to
+              grab with a mouse and no gesture on a desktop — the fifth format
+              sat half-visible and unreachable. */}
+          <div className="flex flex-wrap gap-2">
+            {MODES.map((id) => {
+              const active = mode === id;
               return (
-                <span
-                  key={index}
-                  className={`flex h-[54px] flex-1 items-center justify-center rounded-xl border text-2xl font-extrabold tnum ${
-                    char
-                      ? "border-line bg-[#0f0d19] text-cream"
-                      : isCaret
-                        ? "border-mana bg-[#0f0d19] text-mana shadow-[0_0_0_3px_rgba(217,180,94,0.12)]"
-                        : "border-line bg-[#0f0d19] text-slate-700"
+                <button
+                  key={id}
+                  onClick={() => chooseMode(id)}
+                  aria-pressed={active}
+                  className={`rounded-full border px-3.5 py-2 text-[12px] font-bold transition-colors ${
+                    active
+                      ? "border-mana/50 bg-mana/10 text-mana"
+                      : "border-line bg-transparent text-slate-400 hover:border-white/20 hover:text-slate-300"
                   }`}
                 >
-                  {char}
-                </span>
+                  {MODE_META[id].name}
+                </button>
               );
             })}
           </div>
+          <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+            {meta.summary}
+          </p>
 
-          {/* The real input sits on top, fully transparent but still a normal
-              input: one element to focus, so tapping anywhere in the row opens
-              the keyboard and paste, backspace and autocomplete all behave.
-              Deliberately not `opacity: 0` — some mobile browsers treat an
-              invisible field as not worth focusing and skip the keyboard. */}
-          <input
-            id="code"
-            className="absolute inset-0 h-full w-full cursor-text rounded-xl border-0 bg-transparent p-0 text-base text-transparent caret-transparent outline-none selection:bg-transparent"
-            value={joinCode}
-            maxLength={8}
-            inputMode="text"
-            autoCapitalize="characters"
-            autoComplete="off"
-            autoCorrect="off"
-            spellCheck={false}
-            aria-label="Table code"
-            onChange={(event) => setJoinCode(normaliseCode(event.target.value))}
-            onFocus={() => setCodeFocused(true)}
-            onBlur={() => setCodeFocused(false)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && codeReady) void join();
-            }}
-          />
-        </div>
-
-        <button
-          onClick={join}
-          disabled={busy !== null || !hydrated || !codeReady}
-          className="btn btn-primary h-[50px] w-full text-[15px]"
-        >
-          {busy === "join" ? "Opening…" : "Join the table"}
-        </button>
-
-        <label className="mt-3 flex cursor-pointer select-none items-center justify-center gap-2 text-[11px] text-slate-500">
-          <input
-            type="checkbox"
-            checked={watchOnly}
-            onChange={(event) => setWatchOnly(event.target.checked)}
-            className="h-3.5 w-3.5 rounded border-line bg-surface-2 accent-[#d9b45e]"
-          />
-          Watch as a spectator instead — no seat, no controls
-        </label>
-      </div>
-
-      <div className="my-6 flex items-center gap-3 text-[10px] font-extrabold uppercase tracking-[0.16em] text-slate-600">
-        <span className="h-px flex-1 bg-gradient-to-r from-transparent to-line" />
-        or open your own
-        <span className="h-px flex-1 bg-gradient-to-l from-transparent to-line" />
-      </div>
-
-      {/* ----------------------------------------------------------- create */}
-      <div>
-        <label className="label" htmlFor="name">
-          Your name
-        </label>
-        <input
-          id="name"
-          className="field h-[46px]"
-          placeholder="What should we call you?"
-          value={name}
-          maxLength={24}
-          onChange={(event) => setName(event.target.value)}
-          autoComplete="nickname"
-        />
-
-        <div className="label mt-4">Format</div>
-        {/* These wrap rather than scroll sideways.
-            A horizontal scroller looked tidy, but with the scrollbar hidden
-            there is nothing to grab with a mouse and no gesture on a desktop —
-            the fifth format sat half-visible and unreachable. Wrapping costs a
-            second line and makes every format reachable everywhere. */}
-        <div className="flex flex-wrap gap-2">
-          {MODES.map((id) => {
-            const active = mode === id;
-            return (
-              <button
-                key={id}
-                onClick={() => chooseMode(id)}
-                aria-pressed={active}
-                className={`rounded-full border px-3.5 py-2 text-[12px] font-bold transition-colors ${
-                  active
-                    ? "border-mana/50 bg-mana/10 text-mana"
-                    : "border-line bg-transparent text-slate-400 hover:border-white/20 hover:text-slate-300"
-                }`}
-              >
-                {MODE_META[id].name}
-              </button>
-            );
-          })}
-        </div>
-        <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
-          {meta.summary}
-        </p>
-
-        <div className="mt-3 rounded-2xl border border-line bg-surface-2/50 px-3.5">
-          <div className="flex items-center justify-between gap-3 border-b border-line/70 py-3">
-            <div>
-              <div className="text-[13px] font-bold text-slate-200">
-                Player limit
+          <div className="mt-3 rounded-2xl border border-line bg-surface-2/50 px-3.5">
+            <div className="flex items-center justify-between gap-3 border-b border-line/70 py-3">
+              <div>
+                <div className="text-[13px] font-bold text-slate-200">
+                  Player limit
+                </div>
+                <div className="text-[10px] text-slate-500">
+                  {meta.players} · extra people join as spectators
+                </div>
               </div>
-              <div className="text-[10px] text-slate-500">
-                {meta.players} · extra people join as spectators
+              <div className="flex items-center gap-1 rounded-lg border border-line bg-[#0f0d19] p-0.5">
+                <button
+                  onClick={() =>
+                    setSeats((n) => Math.max(meta.minPlayers, n - 1))
+                  }
+                  disabled={seats <= meta.minPlayers}
+                  aria-label="One fewer player"
+                  className="btn h-7 w-7 rounded-md text-white disabled:opacity-30"
+                >
+                  −
+                </button>
+                <span className="tnum w-6 text-center text-sm font-extrabold">
+                  {seats}
+                </span>
+                <button
+                  onClick={() =>
+                    setSeats((n) => Math.min(meta.maxPlayers, n + 1))
+                  }
+                  disabled={seats >= meta.maxPlayers}
+                  aria-label="One more player"
+                  className="btn h-7 w-7 rounded-md text-white disabled:opacity-30"
+                >
+                  +
+                </button>
               </div>
             </div>
-            <div className="flex items-center gap-1 rounded-lg border border-line bg-[#0f0d19] p-0.5">
-              <button
-                onClick={() => setSeats((n) => Math.max(meta.minPlayers, n - 1))}
-                disabled={seats <= meta.minPlayers}
-                aria-label="One fewer player"
-                className="btn h-7 w-7 rounded-md text-white disabled:opacity-30"
-              >
-                −
-              </button>
-              <span className="tnum w-6 text-center text-sm font-extrabold">
-                {seats}
-              </span>
-              <button
-                onClick={() => setSeats((n) => Math.min(meta.maxPlayers, n + 1))}
-                disabled={seats >= meta.maxPlayers}
-                aria-label="One more player"
-                className="btn h-7 w-7 rounded-md text-white disabled:opacity-30"
-              >
-                +
-              </button>
-            </div>
-          </div>
 
-          <div className="py-3">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-[13px] font-bold text-slate-200">
-                Starting life
-              </span>
-              <span className="tnum text-sm font-extrabold text-mana">
-                {lifeIsFixed ? "40 / 20" : startingLife}
-              </span>
-            </div>
-            {lifeIsFixed ? (
-              <p className="rounded-lg border border-orange-500/25 bg-orange-500/10 px-2.5 py-2 text-[10px] leading-snug text-orange-200/80">
-                Fixed by the rules: 40 for the archenemy, 20 for the team.
-              </p>
-            ) : (
-              <>
-                <div className="grid grid-cols-4 gap-2">
-                  {[20, 30, 40, 60].map((preset) => (
+            <div className="py-3">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-[13px] font-bold text-slate-200">
+                  Starting life
+                </span>
+                <span className="tnum text-sm font-extrabold text-mana">
+                  {lifeIsFixed ? "40 / 20" : startingLife}
+                </span>
+              </div>
+              {lifeIsFixed ? (
+                <p className="rounded-lg border border-orange-500/25 bg-orange-500/10 px-2.5 py-2 text-[10px] leading-snug text-orange-200/80">
+                  Fixed by the rules: 40 for the archenemy, 20 for the team.
+                </p>
+              ) : (
+                <>
+                  <div className="grid grid-cols-4 gap-2">
+                    {[20, 30, 40, 60].map((preset) => (
+                      <button
+                        key={preset}
+                        onClick={() => setStartingLife(preset)}
+                        className={`btn h-[30px] text-xs tnum ${
+                          startingLife === preset ? "btn-primary" : "btn-ghost"
+                        }`}
+                      >
+                        {preset}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-2 flex gap-2">
+                    <input
+                      className="field tnum h-[34px] py-0 text-xs"
+                      inputMode="numeric"
+                      placeholder="Custom life total…"
+                      value={lifeDraft}
+                      onChange={(event) => setLifeDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        const value = Number.parseInt(lifeDraft, 10);
+                        if (
+                          event.key === "Enter" &&
+                          Number.isFinite(value) &&
+                          value > 0
+                        ) {
+                          setStartingLife(Math.min(999, value));
+                          setLifeDraft("");
+                        }
+                      }}
+                    />
                     <button
-                      key={preset}
-                      onClick={() => setStartingLife(preset)}
-                      className={`btn h-[30px] text-xs tnum ${
-                        startingLife === preset ? "btn-primary" : "btn-ghost"
-                      }`}
+                      className="btn btn-ghost px-3 text-[11px]"
+                      onClick={() => {
+                        const value = Number.parseInt(lifeDraft, 10);
+                        if (Number.isFinite(value) && value > 0) {
+                          setStartingLife(Math.min(999, value));
+                          setLifeDraft("");
+                        }
+                      }}
                     >
-                      {preset}
+                      Set
                     </button>
-                  ))}
-                </div>
-                <div className="mt-2 flex gap-2">
-                  <input
-                    className="field tnum h-[34px] py-0 text-xs"
-                    inputMode="numeric"
-                    placeholder="Custom life total…"
-                    value={lifeDraft}
-                    onChange={(event) => setLifeDraft(event.target.value)}
-                    onKeyDown={(event) => {
-                      const value = Number.parseInt(lifeDraft, 10);
-                      if (
-                        event.key === "Enter" &&
-                        Number.isFinite(value) &&
-                        value > 0
-                      ) {
-                        setStartingLife(Math.min(999, value));
-                        setLifeDraft("");
-                      }
-                    }}
-                  />
-                  <button
-                    className="btn btn-ghost px-3 text-[11px]"
-                    onClick={() => {
-                      const value = Number.parseInt(lifeDraft, 10);
-                      if (Number.isFinite(value) && value > 0) {
-                        setStartingLife(Math.min(999, value));
-                        setLifeDraft("");
-                      }
-                    }}
-                  >
-                    Set
-                  </button>
-                </div>
-              </>
-            )}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
-        </div>
 
-        <button
-          onClick={create}
-          disabled={busy !== null || !hydrated}
-          className="mt-4 h-[50px] w-full rounded-xl border border-mana/35 text-[14.5px] font-bold text-mana transition-colors hover:bg-mana/5 disabled:opacity-45"
-        >
-          {busy === "create" ? "Opening table…" : "Open a new table"}
-        </button>
-        <p className="mt-3 text-[11px] leading-relaxed text-slate-600">
-          You&apos;ll get a five-letter code to read out. Anyone with it can join
-          from their phone.
-        </p>
+          <button
+            onClick={create}
+            disabled={busy !== null || !hydrated}
+            className="mt-4 h-[50px] w-full rounded-xl border border-mana/35 text-[14.5px] font-bold text-mana transition-colors hover:bg-mana/5 disabled:opacity-45"
+          >
+            {busy === "create" ? "Opening table…" : "Open a new table"}
+          </button>
+          <p className="mt-3 text-[11px] leading-relaxed text-slate-600">
+            You&apos;ll get a five-letter code to read out. Anyone with it can
+            join from their phone.
+          </p>
+        </div>
       </div>
 
       {error && (
@@ -421,9 +453,8 @@ export default function Home() {
       {backendChoice() === "local" && (
         <p className="mt-3 rounded-xl border border-amber/20 bg-amber/5 px-3 py-2.5 text-[11px] leading-relaxed text-amber/80">
           Local mode: rooms live in this browser only and sync between tabs.
-          Unset{" "}
-          <code className="font-mono text-amber">NEXT_PUBLIC_BACKEND</code> to play
-          from separate phones.
+          Unset <code className="font-mono text-amber">NEXT_PUBLIC_BACKEND</code>{" "}
+          to play from separate phones.
         </p>
       )}
 
