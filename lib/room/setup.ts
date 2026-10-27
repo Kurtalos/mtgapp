@@ -1,5 +1,5 @@
 import type { GameMode, RoomState } from "@/lib/types";
-import { MODE_META } from "@/lib/types";
+import { MODE_META, variantForMode } from "@/lib/types";
 import { baseLifeFor, blankPlayer } from "./reducer";
 
 function clamp(value: number, min: number, max: number): number {
@@ -53,7 +53,7 @@ export function createRoomState(options: {
       resolved: [],
     },
     kingdom: {
-      variant: "classic",
+      variant: variantForMode(mode),
       dealt: false,
       // Empty counts mean "use the table-size default" — see dealRoles.
       setup: { king: 0, knight: 0, bandit: 0, assassin: 0, renegade: 0, usurper: 0 },
@@ -61,6 +61,7 @@ export function createRoomState(options: {
       cards: {},
       classes: {},
       revealed: [],
+      announced: {},
       claims: {},
       revealAll: false,
     },

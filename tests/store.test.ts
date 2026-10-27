@@ -108,6 +108,22 @@ describe("room store", () => {
     assert.deepEqual((await readRoom("GONE1"))?.state, { life: 20 });
   });
 
+  it("fills in fields an older saved room never had", async () => {
+    // A room written before Advanced Kingdoms existed has no `announced` map,
+    // and reading it must not hand the interface an undefined.
+    await createRoom("OLD99", {
+      phase: "playing",
+      kingdom: { variant: "advanced", roles: {}, revealed: [] },
+    });
+
+    const loaded = await readRoom("OLD99");
+    const kingdom = (loaded?.state as { kingdom: Record<string, unknown> }).kingdom;
+    assert.deepEqual(kingdom.announced, {});
+    assert.deepEqual(kingdom.cards, {});
+    // Existing values survive the migration untouched.
+    assert.equal(kingdom.variant, "advanced");
+  });
+
   it("refuses to escape the data directory via the room code", async () => {
     // The route layer validates this, but the store must not be the weak link.
     await createRoom("../../etc/passwd", { pwned: true });

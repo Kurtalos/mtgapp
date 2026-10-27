@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PlayerState, StoredRoom } from "@/lib/types";
 import { applyAction, type RoomAction } from "@/lib/room/reducer";
+import { normaliseRoomState } from "@/lib/room/migrate";
 import { getTransport } from "@/lib/transport";
 import type { PresencePlayer } from "@/lib/transport/types";
 import { getPlayerId, getSavedName } from "@/lib/identity";
@@ -40,9 +41,11 @@ export function useRoom(code: string): UseRoom {
   const transport = useMemo(() => getTransport(), []);
   const inFlight = useRef(0);
 
-  const adopt = useCallback((next: StoredRoom) => {
+  const adopt = useCallback((incoming: StoredRoom) => {
     // Ignore out-of-order pushes; version only ever moves forward.
-    if (roomRef.current && next.version < roomRef.current.version) return;
+    if (roomRef.current && incoming.version < roomRef.current.version) return;
+    // A table opened by an older build is missing fields this one expects.
+    const next = { ...incoming, state: normaliseRoomState(incoming.state) as StoredRoom["state"] };
     roomRef.current = next;
     setRoom(next);
   }, []);

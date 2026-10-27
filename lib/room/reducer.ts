@@ -8,7 +8,7 @@ import type {
   RoleId,
   RoomState,
 } from "@/lib/types";
-import { MODE_META } from "@/lib/types";
+import { MODE_META, isKingdomMode, variantForMode } from "@/lib/types";
 import { roleSetFor } from "@/lib/data/roles";
 import {
   ADVANCED_KING_BONUS,
@@ -98,7 +98,17 @@ export type RoomAction =
   /** Host adjudication, for cards whose result the app cannot compute. */
   | { type: "declareWinner"; byId: string; winnerIds: string[] }
   | { type: "revealRole"; playerId: string }
-  | { type: "claimRole"; playerId: string; role: RoleId | null };
+  | { type: "claimRole"; playerId: string; role: RoleId | null }
+  /**
+   * Advanced Kingdoms: turn your role card face up. `targetId` is only read by
+   * cards whose Announce picks a player (The Priestess).
+   */
+  | {
+      type: "announce";
+      playerId: string;
+      byId?: string;
+      targetId?: string;
+    };
 
 export function blankPlayer(id: string, name: string, seat: number, life: number): PlayerState {
   return {
@@ -119,6 +129,18 @@ export function blankPlayer(id: string, name: string, seat: number, life: number
 export function baseLifeFor(mode: GameMode, startingLife: number): number {
   if (mode === "archenemy") return 20;
   return startingLife;
+}
+
+/**
+ * What the King starts on.
+ *
+ * Classic Kingdoms always put the throne on a flat 50. Advanced Kingdoms is
+ * printed as "+10 life", so it rides on whatever the table set as its starting
+ * total.
+ */
+export function kingLifeFor(state: RoomState): number {
+  if (state.mode === "advanced") return state.startingLife + ADVANCED_KING_BONUS;
+  return KING_LIFE;
 }
 
 /**
@@ -297,9 +319,7 @@ function dealRoles(
 
   const kingId = seats.find((id) => assigned[id] === "king") ?? null;
   // Advanced Kingdoms starts the King at +10 life, not at a flat total.
-  const kingLife = advanced
-    ? state.startingLife + ADVANCED_KING_BONUS
-    : KING_LIFE;
+  const kingLife = kingLifeFor(state);
 
   let next: RoomState = {
     ...state,
@@ -415,7 +435,7 @@ function beginGame(
   const seed = action.seed ?? randomSeed();
   let next: RoomState = { ...state, phase: "playing", winners: null };
 
-  if (next.mode === "kingdom") {
+  if (isKingdomMode(next.mode)) {
     next = dealRoles(next, seed, action.classes ?? []);
   }
 
@@ -475,10 +495,7 @@ export function applyAction(state: RoomState, action: RoomAction): RoomState {
       if (state.players.length >= state.maxPlayers) return state;
       const name = action.name.trim() || "Player";
       const seat = state.players.length;
-      const life =
-        state.mode === "kingdom"
-          ? state.startingLife
-          : baseLifeFor(state.mode, state.startingLife);
+      const life = baseLifeFor(state.mode, state.startingLife);
       const next = {
         ...state,
         // Seating them means they are no longer watching.
@@ -559,7 +576,7 @@ export function applyAction(state: RoomState, action: RoomAction): RoomState {
     case "setMode": {
       if (state.phase !== "lobby") return state;
       const meta = MODE_META[action.mode];
-      return {
+      const next: RoomState = {
         ...state,
         mode: action.mode,
         startingLife: meta.defaultLife,
@@ -570,7 +587,11 @@ export function applyAction(state: RoomState, action: RoomAction): RoomState {
             Math.max(state.players.length, meta.defaultMaxPlayers),
           ),
         ),
+        // The room's ruleset follows its mode, so a table that switches from
+        // Kingdoms to Advanced Kingdoms deals printed cards and vice versa.
+        kingdom: { ...state.kingdom, variant: variantForMode(action.mode) },
       };
+      return log(next, "system", `Format changed to ${meta.name}.`);
     }
 
     case "setMaxPlayers": {
@@ -626,6 +647,7 @@ export function applyAction(state: RoomState, action: RoomAction): RoomState {
           roles: {},
           classes: {},
           revealed: [],
+          announced: {},
           claims: {},
           revealAll: false,
         },
@@ -750,7 +772,12 @@ export function applyAction(state: RoomState, action: RoomAction): RoomState {
       const restored = withPlayer(state, action.playerId, (p) => ({
         ...p,
         eliminated: false,
-        life: state.mode === "archenemy" ? 20 : state.mode === "kingdom" && p.role === "king" ? KING_LIFE : state.startingLife,
+        life:
+          state.mode === "archenemy"
+            ? 20
+            : isKingdomMode(state.mode) && p.role === "king"
+              ? kingLifeFor(state)
+              : state.startingLife,
         poison: 0,
         commanderDamage: {},
       }));
@@ -992,8 +1019,12 @@ export function applyAction(state: RoomState, action: RoomAction): RoomState {
     case "setKingdomVariant": {
       if (action.byId !== state.hostId) return state;
       if (state.phase !== "lobby") return state;
+      // Kept for rooms saved before Advanced Kingdoms had its own mode. The
+      // ruleset and the mode are two views of one choice, so move both.
       const next: RoomState = {
         ...state,
+        // Switching rulesets never rewrites the table's starting life.
+        mode: action.variant === "advanced" ? "advanced" : "kingdom",
         kingdom: { ...state.kingdom, variant: action.variant },
       };
       return log(
@@ -1039,6 +1070,10 @@ export function applyAction(state: RoomState, action: RoomAction): RoomState {
       };
     }
 
+    case "announce": {
+      return announce(state, action);
+    }
+
     case "claimRole": {
       const claims = { ...state.kingdom.claims };
       if (action.role) claims[action.playerId] = action.role;
@@ -1049,6 +1084,97 @@ export function applyAction(state: RoomState, action: RoomAction): RoomState {
     default:
       return state;
   }
+}
+
+/**
+ * Advanced Kingdoms: turn a role card face up.
+ *
+ * Announcing is the only way a card becomes public in the printed game, and it
+ * is what several cards key off ("when a player announces…"). It is therefore
+ * a real game action rather than a cosmetic reveal: it is one-way, everyone is
+ * told, and a card whose ability the app can carry out carries it out.
+ *
+ * The app cannot see the battlefield, so it does not police *when* a card may
+ * announce. The panel shows the printed condition and leaves the ruling to the
+ * table — the same bargain the rest of the mode makes.
+ */
+function announce(
+  state: RoomState,
+  action: { playerId: string; byId?: string; targetId?: string },
+): RoomState {
+  if (!isKingdomMode(state.mode) || state.kingdom.variant !== "advanced") {
+    return state;
+  }
+  if (state.phase !== "playing") return state;
+
+  const player = state.players.find((p) => p.id === action.playerId);
+  if (!player) return state;
+
+  // You announce your own card. The host may do it for someone who has walked
+  // away from the table, which is the same override they have everywhere else.
+  const byId = action.byId ?? action.playerId;
+  if (byId !== action.playerId && byId !== state.hostId) return state;
+
+  const cardId = state.kingdom.cards[action.playerId];
+  const card = cardId ? cardById(cardId) : undefined;
+  if (!card) return state;
+
+  // Face up is face up: announcing twice is a no-op.
+  if (state.kingdom.announced[action.playerId] !== undefined) return state;
+
+  let next: RoomState = {
+    ...state,
+    kingdom: {
+      ...state.kingdom,
+      revealed: Array.from(new Set([...state.kingdom.revealed, action.playerId])),
+      announced: { ...state.kingdom.announced, [action.playerId]: Date.now() },
+    },
+  };
+
+  next = log(next, "mode", `${player.name} announces — ${card.name}.`, action.playerId);
+
+  // The Priestess is the one Announce whose entire effect is on the numbers
+  // this app already keeps, so it is resolved here rather than left to the
+  // table. Without a target there is nothing to resolve; the log still shows
+  // the announcement so the table can sort it out by hand.
+  if (card.announceEffect?.kind === "exchangeWithTarget" && action.targetId) {
+    const target = next.players.find((p) => p.id === action.targetId);
+    if (target && target.id !== action.playerId) {
+      const a = player;
+      const b = target;
+      next = {
+        ...next,
+        players: next.players.map((p) => {
+          if (p.id === a.id) {
+            return {
+              ...p,
+              life: b.life,
+              poison: b.poison,
+              commanderDamage: { ...b.commanderDamage },
+            };
+          }
+          if (p.id === b.id) {
+            return {
+              ...p,
+              life: a.life,
+              poison: a.poison,
+              commanderDamage: { ...a.commanderDamage },
+            };
+          }
+          return p;
+        }),
+      };
+      next = log(
+        next,
+        "life",
+        `${card.name}: ${a.name} and ${b.name} exchange life totals, commander damage and poison.`,
+        action.playerId,
+      );
+      next = settle(next).state;
+    }
+  }
+
+  return next;
 }
 
 function planeswalkTo(

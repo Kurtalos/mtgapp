@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   MODE_META,
+  isKingdomMode,
   type GameMode,
   type PlayerState,
   type RoomState,
@@ -118,7 +119,7 @@ export function RoomClient({ code }: { code: string }) {
   // Someone else at the table already goes by this name.
   // When a Kingdom game ends, everyone gets to see who was what.
   const kingdomRoster = useMemo(() => {
-    if (!room || room.state.mode !== "kingdom") return null;
+    if (!room || !isKingdomMode(room.state.mode)) return null;
     const { roles, classes } = room.state.kingdom;
     if (!roles || Object.keys(roles).length === 0) return null;
     return [...room.state.players]
@@ -366,7 +367,7 @@ export function RoomClient({ code }: { code: string }) {
                     isHost={isHost}
                   />
                 )}
-                {state.mode === "kingdom" && (
+                {isKingdomMode(state.mode) && (
                   <KingdomPanel
                     state={state}
                     dispatch={dispatch}
@@ -638,7 +639,13 @@ function LobbyView({
   copied: boolean;
   onTakeSeat: () => void;
 }) {
-  const modes: GameMode[] = ["commander", "planechase", "archenemy", "kingdom"];
+  const modes: GameMode[] = [
+    "commander",
+    "planechase",
+    "archenemy",
+    "kingdom",
+    "advanced",
+  ];
   const meta = MODE_META[state.mode];
   const [lifeDraft, setLifeDraft] = useState("");
   const seatsLeft = state.maxPlayers - players.length;
@@ -857,9 +864,11 @@ function LobbyView({
               </>
             )}
 
-            {state.mode === "kingdom" && (
+            {isKingdomMode(state.mode) && (
               <p className="mt-2 text-[10px] leading-snug text-slate-500">
-                The King always starts on 50, whatever is set here.
+                {state.mode === "advanced"
+                  ? "The King starts 10 life above this total."
+                  : "The King always starts on 50, whatever is set here."}
               </p>
             )}
           </div>

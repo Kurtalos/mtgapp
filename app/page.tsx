@@ -14,7 +14,13 @@ import {
 import { getPlayerId, getSavedName, saveName } from "@/lib/identity";
 import { Badge } from "@/components/ui";
 
-const MODES: GameMode[] = ["commander", "planechase", "archenemy", "kingdom"];
+const MODES: GameMode[] = [
+  "commander",
+  "planechase",
+  "archenemy",
+  "kingdom",
+  "advanced",
+];
 
 export default function Home() {
   const router = useRouter();
