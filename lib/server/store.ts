@@ -121,6 +121,25 @@ export async function saveRoom(
   });
 }
 
+/**
+ * Remove a room entirely.
+ *
+ * Used when a table has been empty long enough to be considered over. Returns
+ * true when a file was actually removed, so callers can tell "closed" from
+ * "already gone".
+ */
+export async function deleteRoom(code: string): Promise<boolean> {
+  return withLock(code, async () => {
+    try {
+      await fs.unlink(roomPath(code));
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+      throw error;
+    }
+  });
+}
+
 /** Deletes rooms nobody has touched for a week. Returns how many went. */
 export async function pruneStaleRooms(ttlMs = ROOM_TTL_MS): Promise<number> {
   await ensureDir();

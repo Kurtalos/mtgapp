@@ -3,7 +3,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { before, describe, it } from "node:test";
-import { createRoom, pruneStaleRooms, readRoom, saveRoom } from "@/lib/server/store";
+import { createRoom, deleteRoom, pruneStaleRooms, readRoom, saveRoom } from "@/lib/server/store";
 
 let dir: string;
 
@@ -94,6 +94,18 @@ describe("room store", () => {
     assert.ok(removed >= 1);
     assert.equal(await readRoom("OLD01"), null);
     assert.notEqual(await readRoom("NEW01"), null);
+  });
+
+  it("deletes a room, and reports when there was nothing to delete", async () => {
+    await createRoom("GONE1", { life: 40 });
+    assert.equal(await deleteRoom("GONE1"), true);
+    assert.equal(await readRoom("GONE1"), null);
+    assert.equal(await deleteRoom("GONE1"), false);
+
+    // A code can be reused once its room is gone.
+    const again = await createRoom("GONE1", { life: 20 });
+    assert.equal(again.ok, true);
+    assert.deepEqual((await readRoom("GONE1"))?.state, { life: 20 });
   });
 
   it("refuses to escape the data directory via the room code", async () => {
