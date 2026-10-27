@@ -34,7 +34,38 @@ export interface KingdomCard {
    * track, so the panel prompts the table instead of guessing.
    */
   tracksManually?: boolean;
+  /**
+   * The part of an Announce the app can actually carry out on its own. Cards
+   * without this still announce — the interface turns the card face up, tells
+   * the table what it says, and the ability is played out on the battlefield.
+   */
+  announceEffect?: AnnounceEffect;
+  /**
+   * When the printed card allows an Announce. This is a prompt, not a lock:
+   * the table can always announce early if everyone agrees, because the app
+   * cannot see the board state that makes most of these true.
+   */
+  announceWhen?: AnnounceCondition;
 }
+
+/**
+ * Announce abilities this app resolves for you, because they only touch the
+ * numbers it tracks.
+ */
+export type AnnounceEffect =
+  /** The Priestess: exchange life, commander damage and poison with a target. */
+  | { kind: "exchangeWithTarget" };
+
+/** The printed trigger for an Announce, used to nudge the right player. */
+export type AnnounceCondition =
+  /** "When you have 20 or less life…" */
+  | { kind: "selfLife"; atOrBelow: number }
+  /** "When a player has 25 or less life…" */
+  | { kind: "anyPlayerLife"; atOrBelow: number }
+  /** "When you eliminate a player…" */
+  | { kind: "onElimination" }
+  /** "When a player Announces, Announce." */
+  | { kind: "onOtherAnnounce" };
 
 export const ADVANCED_KINGDOM_CARDS: KingdomCard[] = [
   {
@@ -64,6 +95,7 @@ export const ADVANCED_KINGDOM_CARDS: KingdomCard[] = [
     image: "/kingdoms/the-rightful-heir.webp",
     set: "advanced-kingdoms",
     tracksManually: true,
+    announceWhen: { kind: "onElimination" },
   },
   {
     id: "ak_the_knight_in_shining_armor",
@@ -111,6 +143,7 @@ export const ADVANCED_KINGDOM_CARDS: KingdomCard[] = [
     secondary: "Activate this ability only during your turn.",
     image: "/kingdoms/the-priestess.webp",
     set: "advanced-kingdoms",
+    announceEffect: { kind: "exchangeWithTarget" },
   },
   {
     id: "ak_the_bear_trainer",
@@ -202,6 +235,7 @@ export const ADVANCED_KINGDOM_CARDS: KingdomCard[] = [
     image: "/kingdoms/the-sellsword.webp",
     set: "advanced-kingdoms",
     tracksManually: true,
+    announceWhen: { kind: "onOtherAnnounce" },
   },
   {
     id: "ak_the_cultist",
@@ -213,6 +247,7 @@ export const ADVANCED_KINGDOM_CARDS: KingdomCard[] = [
     image: "/kingdoms/the-cultist.webp",
     set: "advanced-kingdoms",
     tracksManually: true,
+    announceWhen: { kind: "onElimination" },
   },
   {
     id: "ak_the_straw_man",
@@ -235,8 +270,33 @@ export const ADVANCED_KINGDOM_CARDS: KingdomCard[] = [
     image: "/kingdoms/the-champion.webp",
     set: "advanced-kingdoms",
     tracksManually: true,
+    announceWhen: { kind: "anyPlayerLife", atOrBelow: 25 },
   },
 ];
+
+/**
+ * True when the card has an Announce ability.
+ *
+ * Every printed Announce is written with the same word, and the card text is
+ * transcribed verbatim, so the text is the source of truth rather than a field
+ * someone has to remember to set on the next card added.
+ */
+export function hasAnnounce(card: KingdomCard): boolean {
+  return /\bAnnounce\b/.test(`${card.text}\n${card.secondary ?? ""}`);
+}
+
+/**
+ * The card's ability with the reminder text taken out — every printed card
+ * repeats "(turn this card face up to reveal your role)", which the interface
+ * has already said once above the button.
+ */
+export function announceText(card: KingdomCard): string {
+  const strip = (text: string | undefined) =>
+    (text ?? "")
+      .replace(/\s*\(turn this card face up to reveal your role\.?\)/gi, "")
+      .trim();
+  return [strip(card.text), strip(card.secondary)].filter(Boolean).join("\n\n");
+}
 
 export function cardsForFamily(family: RoleFamily): KingdomCard[] {
   return ADVANCED_KINGDOM_CARDS.filter((card) => card.family === family);

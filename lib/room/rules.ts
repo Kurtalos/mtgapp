@@ -1,4 +1,5 @@
 import type { PlayerState, RoleId, RoomState } from "@/lib/types";
+import { isKingdomMode } from "@/lib/types";
 
 /** A single commander needs 21 damage to remove a player. */
 export const COMMANDER_DAMAGE_LETHAL = 21;
@@ -99,7 +100,7 @@ export function computeOutcome(state: RoomState): string[] | null {
     return null;
   }
 
-  if (state.mode === "kingdom" && state.kingdom.dealt) {
+  if (isKingdomMode(state.mode) && state.kingdom.dealt) {
     return computeKingdomOutcome(state);
   }
 

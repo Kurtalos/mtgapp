@@ -17,11 +17,14 @@ import {
   ADVANCED_MIN_PLAYERS,
   ADVANCED_SETUP_BY_SIZE,
   advancedSetupFor,
+  announceText,
   cardById,
   describeSetup,
   emptySetup,
+  hasAnnounce,
   setupTotal,
   type AdvancedSetup,
+  type KingdomCard,
 } from "@/lib/data/advancedKingdoms";
 import { useContent } from "@/lib/useContent";
 import { Badge, Modal } from "./ui";
@@ -82,6 +85,19 @@ export function KingdomPanel({
   const showAll = dealt && (state.phase === "finished" || kingdom.revealAll);
   const facing = myCard?.image ?? null;
 
+  // Advanced Kingdoms only: whether *this* player has turned their card up,
+  // and who else at the table has. Announcements are public — the whole point
+  // of the action is that everyone hears what the card does.
+  const myAnnouncedAt = kingdom.announced[myId] ?? null;
+  const myAnnounced = myAnnouncedAt !== null;
+  // Once the card is face up there is nothing left to peek at.
+  const faceUp = peeking || myAnnounced;
+  const canAnnounce =
+    advanced && dealt && state.phase === "playing" && Boolean(myCard) && !myAnnounced;
+  const announcedBy = state.players
+    .filter((player) => kingdom.announced[player.id] !== undefined)
+    .sort((a, b) => (kingdom.announced[a.id] ?? 0) - (kingdom.announced[b.id] ?? 0));
+
   return (
     <div className="space-y-3">
       {/* ---------------------------------------------------------- role card */}
@@ -99,7 +115,7 @@ export function KingdomPanel({
                 {advanced ? "Your role card" : "Your secret role"}
               </div>
 
-              {peeking ? (
+              {faceUp ? (
                 <div className="animate-pop">
                   <div
                     className="text-xl font-black leading-tight"
@@ -159,6 +175,20 @@ export function KingdomPanel({
                     </div>
                   </div>
 
+                  {/* The printed setup has the Bandits open their eyes
+                      together at the start of the game. This is that moment,
+                      privately: only a Bandit is ever shown it. */}
+                  {advanced && myMeta.family === "bandit" && (
+                    <div className="mt-1.5 rounded-lg border border-white/10 bg-black/25 px-2 py-1.5">
+                      <div className="text-[9px] font-black uppercase tracking-wider text-slate-500">
+                        Your bandits
+                      </div>
+                      <div className="text-[11px] leading-snug text-slate-300">
+                        {otherBandits(state, myId)}
+                      </div>
+                    </div>
+                  )}
+
                   {myCard?.tracksManually && (
                     <p className="mt-1.5 rounded-lg border border-amber/25 bg-amber/10 px-2 py-1.5 text-[10px] leading-snug text-amber">
                       This card depends on table history the app cannot see —
@@ -181,13 +211,26 @@ export function KingdomPanel({
               )}
             </div>
 
-            <button
-              onClick={() => setPeeking((v) => !v)}
-              className="shrink-0 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs font-black uppercase tracking-wider"
-              style={{ color: myMeta.colour }}
-            >
-              {peeking ? "Hide" : "Peek"}
-            </button>
+            {myAnnounced ? (
+              <span
+                className="shrink-0 rounded-xl border px-3 py-2 text-[10px] font-black uppercase tracking-wider"
+                style={{
+                  color: myMeta.colour,
+                  borderColor: `${myMeta.colour}66`,
+                  background: `${myMeta.colour}1a`,
+                }}
+              >
+                Face up
+              </span>
+            ) : (
+              <button
+                onClick={() => setPeeking((v) => !v)}
+                className="shrink-0 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs font-black uppercase tracking-wider"
+                style={{ color: myMeta.colour }}
+              >
+                {peeking ? "Hide" : "Peek"}
+              </button>
+            )}
           </div>
         </div>
       ) : (
@@ -199,6 +242,45 @@ export function KingdomPanel({
           </div>
           <div className="mt-1 text-[11px] text-slate-600">
             Only the King is public. Everyone else keeps theirs face down.
+          </div>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------ announce */}
+      {advanced && dealt && myCard && hasAnnounce(myCard) && (
+        <AnnouncePanel
+          state={state}
+          myId={myId}
+          dispatch={dispatch}
+          card={myCard}
+          announcedAt={myAnnouncedAt}
+          canAnnounce={canAnnounce}
+        />
+      )}
+
+      {advanced && announcedBy.length > 0 && (
+        <div className="rounded-xl border border-line bg-surface-2 px-3 py-2">
+          <div className="text-[9px] font-black uppercase tracking-wider text-slate-500">
+            Announced
+          </div>
+          <div className="mt-1 space-y-0.5">
+            {announcedBy.map((player) => {
+              const cardId = kingdom.cards[player.id];
+              const card = cardId ? cardById(cardId) : undefined;
+              return (
+                <button
+                  key={player.id}
+                  onClick={() => card && setZoom(card.image)}
+                  className="flex w-full items-center gap-2 text-left text-[11px]"
+                >
+                  <span className="min-w-0 flex-1 truncate font-bold text-slate-200">
+                    {player.name}
+                  </span>
+                  <span className="shrink-0 text-slate-400">{card?.name ?? "—"}</span>
+                  {card && <span className="shrink-0 text-slate-600">›</span>}
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
@@ -231,17 +313,13 @@ export function KingdomPanel({
           </div>
           <div className="grid grid-cols-2 gap-1.5">
             <button
-              onClick={() =>
-                dispatch({ type: "setKingdomVariant", byId: myId, variant: "classic" })
-              }
+              onClick={() => dispatch({ type: "setMode", mode: "kingdom" })}
               className={`btn py-2 text-[11px] ${!advanced ? "btn-primary" : "btn-ghost"}`}
             >
               Classic
             </button>
             <button
-              onClick={() =>
-                dispatch({ type: "setKingdomVariant", byId: myId, variant: "advanced" })
-              }
+              onClick={() => dispatch({ type: "setMode", mode: "advanced" })}
               className={`btn py-2 text-[11px] ${advanced ? "btn-primary" : "btn-ghost"}`}
             >
               Advanced
@@ -249,8 +327,8 @@ export function KingdomPanel({
           </div>
           <p className="mt-1.5 text-[10px] leading-snug text-slate-500">
             {advanced
-              ? "21 printed role cards, 5–9 players. Each player is dealt a specific card from the printed set."
-              : "The standard five roles, 2–8 players."}
+              ? "21 printed role cards, 5–9 players. Each player is dealt one card, face down until they Announce."
+              : "The standard five roles, 2–8 players. Switches the room to Advanced Kingdoms — the two are separate formats."}
           </p>
         </div>
       )}
@@ -379,14 +457,215 @@ export function KingdomPanel({
         dispatch={dispatch}
       />
 
-      <Modal open={Boolean(facing) && zoom === facing} onClose={() => setZoom(null)} title={myCard?.name ?? "Your role card"}>
-        {facing && (
+      <Modal
+        open={Boolean(zoom && zoom.startsWith("/kingdoms/"))}
+        onClose={() => setZoom(null)}
+        title={zoomCardName(state, zoom) ?? "Role card"}
+      >
+        {zoom?.startsWith("/kingdoms/") && (
           /* eslint-disable-next-line @next/next/no-img-element */
-          <img src={facing} alt={myCard?.name ?? "Role card"} className="w-full rounded-xl" />
+          <img src={zoom} alt="Role card" className="w-full rounded-xl" />
         )}
       </Modal>
     </div>
   );
+}
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The Announce button.
+ *
+ * Announcing is a one-way door in the printed game — the card stays face up and
+ * the table gets to see it — so the button explains itself before it fires,
+ * names the player it will affect, and says plainly when the app is only
+ * logging the ability rather than resolving it.
+ */
+function AnnouncePanel({
+  state,
+  myId,
+  dispatch,
+  card,
+  announcedAt,
+  canAnnounce,
+}: {
+  state: RoomState;
+  myId: string;
+  dispatch: (action: RoomAction) => void;
+  card: KingdomCard;
+  announcedAt: number | null;
+  canAnnounce: boolean;
+}) {
+  const [picking, setPicking] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const announced = announcedAt !== null;
+  const effect = announceText(card);
+  const automated = card.announceEffect?.kind === "exchangeWithTarget";
+  const opponents = state.players.filter((p) => p.id !== myId);
+
+  const announceFor = (targetId?: string) => {
+    dispatch({ type: "announce", playerId: myId, byId: myId, targetId });
+    setPicking(false);
+    setConfirming(false);
+  };
+
+  return (
+    <div
+      className={`rounded-2xl border p-3 ${
+        announced
+          ? "border-mana/30 bg-mana/5"
+          : "border-[#c9a227]/40 bg-[#c9a227]/10"
+      }`}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[9px] font-black uppercase tracking-[0.14em] text-[#c9a227]">
+          {announced ? "Announced" : "Announce"}
+        </div>
+        {announced && (
+          <span className="rounded-full bg-mana/20 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-mana">
+            Face up
+          </span>
+        )}
+      </div>
+
+      <p className="mt-1.5 whitespace-pre-line text-[11px] leading-relaxed text-slate-300">
+        {effect}
+      </p>
+
+      {!announced && card.announceWhen && (
+        <p className="mt-1.5 rounded-lg bg-black/25 px-2 py-1.5 text-[10px] leading-snug text-amber">
+          {describeAnnounceWhen(card.announceWhen)} — the app leaves the timing to
+          the table.
+        </p>
+      )}
+
+      {announced ? (
+        <p className="mt-1.5 text-[10px] leading-snug text-slate-500">
+          {automated
+            ? "Resolved on the spot when it was announced."
+            : "Play this out on the battlefield — the app has done all it can."}
+        </p>
+      ) : !canAnnounce ? (
+        <p className="mt-1.5 text-[10px] leading-snug text-slate-500">
+          {state.phase === "playing"
+            ? "Announce once the game is under way."
+            : "You can announce once the game starts."}
+        </p>
+      ) : confirming ? (
+        <div className="mt-2 space-y-1.5">
+          <p className="text-[11px] font-bold text-white">
+            Turn {card.name} face up for the whole table?
+          </p>
+          <p className="text-[10px] leading-snug text-slate-400">
+            The card stays face up for the rest of the game. Everyone will see
+            your role.
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setConfirming(false)}
+              className="btn btn-ghost flex-1 py-2 text-xs"
+            >
+              Not yet
+            </button>
+            <button
+              onClick={() => (automated ? setPicking(true) : announceFor())}
+              className="btn btn-primary flex-1 py-2 text-xs"
+            >
+              Announce
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={() => setConfirming(true)}
+          className="btn mt-2 w-full py-2.5 text-xs"
+          style={{ background: "#c9a227", color: "#1a1405" }}
+        >
+          Announce — turn {card.name} face up
+        </button>
+      )}
+
+      <Modal
+        open={picking}
+        onClose={() => setPicking(false)}
+        title="Exchange with whom?"
+      >
+        <p className="mb-3 text-[11px] leading-relaxed text-slate-400">
+          The Priestess swaps your life total, accumulated commander damage and
+          poison counters with one player. Pick the player — the app does the
+          arithmetic.
+        </p>
+        <div className="space-y-1">
+          {opponents.map((player) => (
+            <button
+              key={player.id}
+              onClick={() => announceFor(player.id)}
+              className="flex w-full items-center gap-2 rounded-lg border border-line bg-surface-2 px-2.5 py-2 text-left"
+            >
+              <span className="min-w-0 flex-1 truncate text-xs font-bold text-slate-200">
+                {player.name}
+              </span>
+              <span className="tnum shrink-0 text-[11px] text-slate-400">
+                {player.life} life · {player.poison} poison
+              </span>
+            </button>
+          ))}
+          {opponents.length === 0 && (
+            <p className="text-[11px] text-slate-500">Nobody else at the table.</p>
+          )}
+        </div>
+        <button
+          onClick={() => announceFor()}
+          className="btn btn-ghost mt-3 w-full py-2 text-[11px]"
+        >
+          Announce without exchanging
+        </button>
+      </Modal>
+    </div>
+  );
+}
+
+/**
+ * The other Bandits at the table, or a line saying there are none.
+ *
+ * Advanced Kingdoms opens with a "Bandit Reveal" — all players close their
+ * eyes, the Bandits look around, then everyone opens them again. This is that
+ * step without the theatre; the list is only ever rendered for a Bandit.
+ */
+function otherBandits(state: RoomState, myId: string): string {
+  const family = (id: string) => {
+    const role = state.kingdom.roles[id];
+    return role ? ROLES[role]?.family : undefined;
+  };
+  const names = state.players
+    .filter((p) => p.id !== myId && family(p.id) === "bandit")
+    .map((p) => p.name);
+  return names.length > 0 ? names.join(", ") : "Nobody else — you are on your own.";
+}
+
+/** The card behind an image path, so the zoom modal can title itself. */
+function zoomCardName(state: RoomState, path: string | null): string | null {
+  if (!path) return null;
+  const cardId = Object.values(state.kingdom.cards).find(
+    (id) => cardById(id)?.image === path,
+  );
+  return cardId ? (cardById(cardId)?.name ?? null) : null;
+}
+
+/** Plain-English version of a card's printed Announce trigger. */
+function describeAnnounceWhen(
+  condition: NonNullable<KingdomCard["announceWhen"]>,
+): string {
+  switch (condition.kind) {
+    case "selfLife":
+      return `Your card allows this at ${condition.atOrBelow} life or less`;
+    case "anyPlayerLife":
+      return `Your card allows this once any player is at ${condition.atOrBelow} life or less`;
+    case "onElimination":
+      return "Your card allows this when you eliminate a player";
+    case "onOtherAnnounce":
+      return "Your card says to announce when anyone else does";
+  }
 }
 
 /* -------------------------------------------------------------------------- */

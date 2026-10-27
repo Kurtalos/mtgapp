@@ -9,7 +9,7 @@ when they create the table, and anyone who arrives late, or would rather just
 watch, joins as a **spectator** — read-only, not counted toward the limit, and
 visible to the host as "watching".
 
-Built for the four multiplayer formats our group actually plays:
+Built for the five multiplayer formats our group actually plays:
 
 | Format | What it tracks |
 | --- | --- |
@@ -17,15 +17,27 @@ Built for the four multiplayer formats our group actually plays:
 | **Planechase** | Shared planar deck, the planar die (3 blank / 1 chaos / 2 planeswalk), chaos prompts, planar controller, planeswalk with phenomenon skipping |
 | **Archenemy** | Archenemy on 40 vs the team on 20, scheme deck, ongoing vs one-shot schemes |
 | **Kingdoms** | Role setup window (choose how many of each role), secret roles dealt at random, a random class within each role, private tap-to-peek cards, asymmetric win conditions, the usurpation swap |
-| **Advanced Kingdoms** | The printed 21-card set for 5–9 players: deal from the official composition table, a real role card with its art and rules, Bandit reveal, and the printed win conditions |
+| **Advanced Kingdoms** | The printed 21-card set for 5–9 players: official composition table, one real role card each, **Announce** to flip a card face up and fire its ability, Bandit reveal, and the printed win conditions |
 
-**Advanced Kingdoms** is the full printed expansion, not a reskin. Pick it in
-the lobby and the setup window runs the official composition table — 5 players
-gets one King, one Knight, two Assassins and a Renegade; 9 gets one King, two
-Knights, three Bandits and three Assassins. Each player is dealt a specific card
-from the printed set, so their private screen shows the actual card with its art
-and wording, and the win conditions come from the reference sheet rather than
-from memory.
+**Advanced Kingdoms** is the full printed expansion, not a reskin, and it is its
+own format on the home screen — not a switch buried inside Kingdoms. The lobby
+runs the official composition table: 5 players gets one King, one Knight, two
+Assassins and a Renegade; 9 gets one King, two Knights, three Bandits and three
+Assassins. Each player is dealt a specific card from the printed set, so their
+private screen shows the actual card with its art and wording, and the win
+conditions come from the reference sheet rather than from memory. The King
+starts 10 life above the table's total.
+
+Most cards sit face down until their owner **Announces** — the printed way of
+turning a role card face up to fire its ability. Announcing is a real action in
+the app: it is one-way, it tells the whole table, it is logged, and it marks the
+card as face up for the rest of the game. The app resolves the abilities it can
+see the numbers for — **The Priestess** swaps life totals, accumulated commander
+damage and poison counters with a player of your choice, arithmetically — and
+otherwise shows the table the card's wording and tells them to play it out on the
+battlefield. Cards whose Announce is conditional ("when you have 20 or less
+life", "when a player announces") display that condition as a reminder; the app
+does not police the timing, because it cannot see the board.
 
 A handful of cards (The Cultist, The Champion, The Straw Man, The Sellsword and
 friends) depend on table history the app cannot see — who landed the killing

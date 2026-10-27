@@ -1,5 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { normaliseRoomState } from "@/lib/room/migrate";
 
 /**
  * Durable storage for rooms.
@@ -56,7 +57,10 @@ async function ensureDir() {
 export async function readRoom(code: string): Promise<StoredRoomRecord | null> {
   try {
     const raw = await fs.readFile(roomPath(code), "utf8");
-    return JSON.parse(raw) as StoredRoomRecord;
+    const room = JSON.parse(raw) as StoredRoomRecord;
+    // Old rooms are missing fields added since they were written; every reader
+    // comes through here, so this is the one place to fix that.
+    return { ...room, state: normaliseRoomState(room.state) };
   } catch (error) {
     const code_ = (error as NodeJS.ErrnoException).code;
     if (code_ === "ENOENT") return null;

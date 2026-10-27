@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { applyAction, type RoomAction } from "@/lib/room/reducer";
 import { createRoomState } from "@/lib/room/setup";
-import type { GameMode, RoomState } from "@/lib/types";
+import { MODE_META, type GameMode, type RoomState } from "@/lib/types";
 import { COMMANDER_DAMAGE_LETHAL, KING_LIFE } from "@/lib/room/rules";
 import { createRng, rollPlanarFace, shuffle } from "@/lib/room/random";
 import { roleSetFor } from "@/lib/data/roles";
@@ -12,7 +12,9 @@ import { PLANAR_CARDS } from "@/lib/data/planechase";
 import {
   ADVANCED_KINGDOM_CARDS,
   ADVANCED_SETUP_BY_SIZE,
+  announceText,
   cardById,
+  hasAnnounce,
 } from "@/lib/data/advancedKingdoms";
 
 const HOST = "p_host";
@@ -1069,5 +1071,214 @@ describe("who may change a life total", () => {
       byPlayerId: HOST,
     });
     assert.equal(player(hostHeal, "p_2").life, 40);
+  });
+});
+
+describe("advanced kingdoms as its own mode", () => {
+  it("is a separate format with its own player range", () => {
+    const state = room("advanced");
+    assert.equal(state.mode, "advanced");
+    // The room build is forced to nine seats for the tests, but the format's
+    // own default and limits are what the lobby uses.
+    assert.equal(MODE_META.advanced.minPlayers, 5);
+    assert.equal(MODE_META.advanced.maxPlayers, 9);
+    assert.equal(state.kingdom.variant, "advanced");
+  });
+
+  it("keeps the ruleset and the mode pointing at the same thing", () => {
+    let state = room("kingdom");
+    assert.equal(state.kingdom.variant, "classic");
+
+    state = act(state, { type: "setMode", mode: "advanced" });
+    assert.equal(state.kingdom.variant, "advanced");
+    assert.equal(state.mode, "advanced");
+
+    state = act(state, { type: "setMode", mode: "kingdom" });
+    assert.equal(state.kingdom.variant, "classic");
+
+    // The old ruleset action still works, and moves the room with it, so a
+    // table saved before this change loads into the right format.
+    state = act(state, { type: "setKingdomVariant", byId: HOST, variant: "advanced" });
+    assert.equal(state.mode, "advanced");
+  });
+
+  it("deals printed cards and starts the King ten life ahead", () => {
+    let state = room("advanced");
+    state = act(state, { type: "start", byId: HOST, seed: 11 });
+
+    const kingId = Object.keys(state.kingdom.roles).find(
+      (id) => state.kingdom.roles[id] === "king",
+    )!;
+    assert.equal(player(state, kingId).life, state.startingLife + 10);
+    for (const id of ids(state)) {
+      assert.ok(state.kingdom.cards[id], `${id} was dealt a card`);
+    }
+  });
+
+  it("treats the King's elimination as the end of the game in both modes", () => {
+    let state = room("advanced");
+    state = act(state, { type: "start", byId: HOST, seed: 4 });
+    const kingId = Object.keys(state.kingdom.roles).find(
+      (id) => state.kingdom.roles[id] === "king",
+    )!;
+    state = act(state, {
+      type: "adjustLife",
+      playerId: kingId,
+      delta: -200,
+      byPlayerId: HOST,
+    });
+    assert.equal(state.phase, "finished");
+  });
+});
+
+describe("announcing a role card", () => {
+  /** A started Advanced Kingdoms room where a chosen player holds The Priestess. */
+  function withPriestess(): { state: RoomState; holder: string } {
+    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]) {
+      let state = room("advanced");
+      state = act(state, { type: "start", byId: HOST, seed });
+      const holder = Object.keys(state.kingdom.cards).find(
+        (id) => state.kingdom.cards[id] === "ak_the_priestess",
+      );
+      if (holder) return { state, holder };
+    }
+    throw new Error("The Priestess was never dealt");
+  }
+
+  it("turns the card face up for the whole table", () => {
+    const { state, holder } = withPriestess();
+    assert.ok(!state.kingdom.revealed.includes(holder));
+
+    const after = act(state, { type: "announce", playerId: holder, byId: holder });
+    assert.ok(after.kingdom.revealed.includes(holder));
+    assert.ok(after.kingdom.announced[holder] > 0);
+    assert.match(after.log[0].text, /announces — The Priestess/);
+  });
+
+  it("cannot be undone or repeated", () => {
+    const { state, holder } = withPriestess();
+    const once = act(state, { type: "announce", playerId: holder, byId: holder });
+    const twice = act(once, {
+      type: "announce",
+      playerId: holder,
+      byId: holder,
+      targetId: "p_1" === holder ? "p_2" : "p_1",
+    });
+    assert.deepEqual(twice.kingdom.announced, once.kingdom.announced);
+    assert.equal(twice.log.length, once.log.length);
+  });
+
+  it("only the owner may announce, unless the host does it for them", () => {
+    const { state, holder } = withPriestess();
+    const other = ids(state).find((id) => id !== holder)!;
+
+    const byOther = act(state, {
+      type: "announce",
+      playerId: holder,
+      byId: other,
+    });
+    assert.equal(byOther, state);
+
+    const byHost = act(state, { type: "announce", playerId: holder, byId: HOST });
+    assert.ok(byHost.kingdom.announced[holder]);
+  });
+
+  it("does nothing in classic Kingdoms or before the game starts", () => {
+    const { state, holder } = withPriestess();
+
+    // A room cannot change format mid-game, so build the classic shape by hand:
+    // the same dealt cards, but the classic ruleset, where announcing is not a
+    // thing.
+    const classic: RoomState = {
+      ...state,
+      mode: "kingdom",
+      kingdom: { ...state.kingdom, variant: "classic" },
+    };
+    assert.equal(
+      act(classic, { type: "announce", playerId: holder, byId: holder }),
+      classic,
+    );
+
+    const lobby = room("advanced");
+    const holderInLobby = ids(lobby)[0];
+    assert.equal(
+      act(lobby, { type: "announce", playerId: holderInLobby, byId: holderInLobby }),
+      lobby,
+    );
+  });
+
+  it("The Priestess exchanges life, commander damage and poison", () => {
+    const { state, holder } = withPriestess();
+    const target = ids(state).find((id) => id !== holder)!;
+
+    // Give the two of them clearly different numbers. Commander damage is
+    // applied first because it is also life loss — it would move the totals
+    // this test is checking.
+    let prepared = act(state, {
+      type: "adjustCommanderDamage",
+      sourceId: target,
+      targetId: holder,
+      delta: 6,
+    });
+    prepared = act(prepared, {
+      type: "setLife",
+      playerId: holder,
+      value: 31,
+      byPlayerId: HOST,
+    });
+    prepared = act(prepared, {
+      type: "setLife",
+      playerId: target,
+      value: 8,
+      byPlayerId: HOST,
+    });
+    prepared = act(prepared, {
+      type: "adjustPoison",
+      playerId: target,
+      delta: 3,
+    });
+
+    const after = act(prepared, {
+      type: "announce",
+      playerId: holder,
+      byId: holder,
+      targetId: target,
+    });
+
+    // Everything the two of them had accumulated changes hands.
+    assert.equal(player(after, holder).life, 8);
+    assert.equal(player(after, target).life, 31);
+    assert.equal(player(after, holder).poison, 3);
+    assert.equal(player(after, target).poison, 0);
+    assert.equal(player(after, holder).commanderDamage[target] ?? 0, 0);
+    assert.equal(player(after, target).commanderDamage[target], 6);
+  });
+
+  it("logs the announcement without a target, and resolves nothing", () => {
+    const { state, holder } = withPriestess();
+    const before = state.players.map((p) => p.life);
+    const after = act(state, { type: "announce", playerId: holder, byId: holder });
+    assert.deepEqual(
+      after.players.map((p) => p.life),
+      before,
+    );
+    assert.ok(after.kingdom.announced[holder]);
+  });
+
+  it("every printed card except the King can announce", () => {
+    for (const card of ADVANCED_KINGDOM_CARDS) {
+      assert.equal(
+        hasAnnounce(card),
+        card.id !== "ak_the_king",
+        `${card.name} announce detection`,
+      );
+    }
+  });
+
+  it("strips the reminder text from the ability it shows the table", () => {
+    const priestess = cardById("ak_the_priestess")!;
+    const text = announceText(priestess);
+    assert.ok(!text.includes("turn this card face up"));
+    assert.match(text, /Exchange life totals/);
   });
 });

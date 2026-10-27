@@ -6,14 +6,44 @@
  * simple: one state in, one state out.
  */
 
-export type GameMode = "commander" | "planechase" | "archenemy" | "kingdom";
+/** Classic five-role Kingdoms, or the Advanced Kingdoms card set. */
+export type KingdomVariant = "classic" | "advanced";
+
+export type GameMode =
+  | "commander"
+  | "planechase"
+  | "archenemy"
+  | "kingdom"
+  | "advanced";
 
 export const GAME_MODES: GameMode[] = [
   "commander",
   "planechase",
   "archenemy",
   "kingdom",
+  "advanced",
 ];
+
+/**
+ * Both Kingdoms rulesets share one engine: same roles, same win conditions,
+ * same throne. They are separate rooms because the *card* layer differs —
+ * Advanced Kingdoms deals printed cards with Announce abilities, and those
+ * abilities change what a reveal means. Anything that only cares about "is
+ * there a King at this table" should ask this rather than compare modes.
+ */
+export function isKingdomMode(mode: GameMode): boolean {
+  return mode === "kingdom" || mode === "advanced";
+}
+
+/** Ruleset a room of this mode plays. */
+export function variantForMode(mode: GameMode): KingdomVariant {
+  return mode === "advanced" ? "advanced" : "classic";
+}
+
+/** The mode a room using this ruleset belongs in. */
+export function modeForVariant(variant: KingdomVariant): GameMode {
+  return variant === "advanced" ? "advanced" : "kingdom";
+}
 
 export type Phase = "lobby" | "playing" | "finished";
 
@@ -33,9 +63,6 @@ export type RoleId =
   | "assassin"
   | "renegade"
   | "usurper";
-
-/** Classic five-role Kingdoms, or the Advanced Kingdoms card set. */
-export type KingdomVariant = "classic" | "advanced";
 
 export type PlanarFace = "blank" | "chaos" | "planeswalk";
 
@@ -114,6 +141,15 @@ export interface KingdomState {
   classes: Record<string, string>;
   /** Player ids whose role is public knowledge. */
   revealed: string[];
+  /**
+   * Advanced Kingdoms only: player id -> when they Announced.
+   *
+   * Announcing is the printed way of flipping a role card face up, and it is
+   * the trigger some cards key off ("when a player announces…"). It is kept
+   * apart from `revealed` because a host revealing a card to settle an argument
+   * is not an Announce and must not fire those triggers.
+   */
+  announced: Record<string, number>;
   /** Player ids that have claimed a role out loud (social layer, not rules). */
   claims: Record<string, RoleId>;
   /**
@@ -261,5 +297,18 @@ export const MODE_META: Record<GameMode, ModeMeta> = {
     accent: "#facc15",
     summary:
       "The Treachery / Kingdoms variant: secret roles and asymmetric win conditions. The King is public and starts at 50. Advanced Kingdoms adds 21 printed role cards for 5–9 players.",
+  },
+  advanced: {
+    id: "advanced",
+    name: "Advanced Kingdoms",
+    tagline: "21 printed roles",
+    players: "5–9 players",
+    defaultLife: 40,
+    defaultMaxPlayers: 6,
+    minPlayers: 5,
+    maxPlayers: 9,
+    accent: "#c9a227",
+    summary:
+      "The printed card set: one specific role card each, face down until you Announce. Announce flips your card up and fires its ability — The Priestess swaps life totals, commander damage and poison with a player of your choice. The King starts 10 life ahead.",
   },
 };

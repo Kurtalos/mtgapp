@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { RoomState } from "@/lib/types";
+import { isKingdomMode, type RoomState } from "@/lib/types";
 import { cardById } from "@/lib/data/advancedKingdoms";
 import { ROLES } from "@/lib/data/roles";
 import { cardArtFor } from "@/lib/scryfall";
@@ -63,7 +63,7 @@ export function SpectatorView({
       {state.mode === "archenemy" && (
         <SchemeInPlay state={state} onZoom={setZoom} />
       )}
-      {state.mode === "kingdom" && (
+      {isKingdomMode(state.mode) && (
         <RevealedRoles state={state} onZoom={setZoom} />
       )}
 

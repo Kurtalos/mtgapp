@@ -1,6 +1,6 @@
 "use client";
 
-import type { PlayerState, RoomState } from "@/lib/types";
+import { isKingdomMode, type PlayerState, type RoomState } from "@/lib/types";
 import {
   COMMANDER_DAMAGE_LETHAL,
   POISON_LETHAL,
@@ -60,7 +60,7 @@ export function PlayerTile({
   const poisoned = player.poison > 0;
   const role = state.kingdom.roles[player.id];
   const rolePublic = state.kingdom.revealed.includes(player.id);
-  const isKing = state.mode === "kingdom" && role === "king" && rolePublic;
+  const isKing = isKingdomMode(state.mode) && role === "king" && rolePublic;
   const isArchenemy = state.mode === "archenemy" && state.archenemy.archenemyId === player.id;
   const atRisk =
     !lethal &&
