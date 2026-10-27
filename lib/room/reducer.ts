@@ -50,7 +50,7 @@ export type RoomAction =
     }
   | { type: "reset"; byId: string; seed?: number }
   | { type: "adjustLife"; playerId: string; delta: number; byPlayerId?: string }
-  | { type: "setLife"; playerId: string; value: number }
+  | { type: "setLife"; playerId: string; value: number; byPlayerId?: string }
   | { type: "adjustCommanderDamage"; sourceId: string; targetId: string; delta: number }
   | { type: "adjustPoison"; playerId: string; delta: number }
   | {
@@ -186,6 +186,13 @@ function settle(state: RoomState): { state: RoomState; deaths: string[] } {
 /**
  * Kingdoms: if the King has just been killed by the Usurper's own hand, the
  * two swap places instead of the game ending.
+ */
+/**
+ * The classic six-player Usurper's throne swap.
+ *
+ * Fires when the engine is told the Usurper dealt the lethal damage. That is
+ * now expressible again: any player may reduce another player's life, so the
+ * Usurper can swing at the King's tile and be credited for the kill.
  */
 function maybeUsurp(state: RoomState, kingId: string, byId?: string): RoomState {
   if (state.mode !== "kingdom" || !byId || byId === kingId) return state;
@@ -341,6 +348,47 @@ function advancedRolesFor(playerCount: number): RoleId[] {
   push("assassin", setup.assassin);
   push("renegade", setup.renegade);
   return bag;
+}
+
+/**
+ * Who is allowed to change a life total.
+ *
+ * Three rules, in order:
+ *
+ *   1. The host may correct anyone — that is what a host is for.
+ *   2. A player may always change their own total.
+ *   3. Any seated player may *reduce* another player's total, because damage is
+ *      aimed outward and the table has to be able to point at the person who
+ *      just got hit. Nobody but the host may *raise* someone else's life.
+ *
+ * Rule 3 exists so a lethal swing can be credited to the player who made it —
+ * without it the Usurper's throne swap is unreachable, since only the King and
+ * the host would ever be able to move the King's life total.
+ *
+ * This is a correctness guard, not a security boundary. The room document is
+ * written by the clients themselves, so a determined player could PUT whatever
+ * state they liked straight to the API. What this stops is the failure that
+ * actually happens at a table: a mis-wired control, or a thumb on the wrong
+ * tile. Real enforcement would mean moving the game server-side, which is a
+ * much larger change than this rule is worth.
+ */
+export function canAdjustLife(
+  state: RoomState,
+  byId: string | undefined,
+  targetId: string,
+  delta: number,
+): boolean {
+  if (!byId) return false;
+  if (byId === state.hostId) return true;
+
+  // Spectators hold an id but no seat; they watch, they do not play.
+  const seated = state.players.some((player) => player.id === byId);
+  if (!seated) return false;
+
+  if (byId === targetId) return true;
+
+  // Damage only. Healing another player is the host's call.
+  return delta < 0;
 }
 
 /** Expands {king: 1, bandit: 2, …} into the flat role bag to shuffle. */
@@ -602,6 +650,8 @@ export function applyAction(state: RoomState, action: RoomAction): RoomState {
 
     case "adjustLife": {
       if (state.phase === "lobby") return state;
+      if (!canAdjustLife(state, action.byPlayerId, action.playerId, action.delta))
+        return state;
       let next: RoomState = withPlayer(state, action.playerId, (p) => ({
         ...p,
         life: p.life + action.delta,
@@ -626,6 +676,19 @@ export function applyAction(state: RoomState, action: RoomAction): RoomState {
     case "setLife": {
       const value = Math.round(action.value);
       if (!Number.isFinite(value)) return state;
+      const target = state.players.find((p) => p.id === action.playerId);
+      if (!target) return state;
+      // A "set to" is either damage or healing depending which way it goes.
+      if (
+        !canAdjustLife(
+          state,
+          action.byPlayerId,
+          action.playerId,
+          value - target.life,
+        )
+      ) {
+        return state;
+      }
       const next = withPlayer(state, action.playerId, (p) => ({ ...p, life: value }));
       return settle(next).state;
     }

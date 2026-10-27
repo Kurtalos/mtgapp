@@ -19,6 +19,7 @@ export function PlayerSheet({
   onClose,
   dispatch,
   canEdit,
+  meId,
 }: {
   player: PlayerState | null;
   state: RoomState;
@@ -26,6 +27,8 @@ export function PlayerSheet({
   onClose: () => void;
   dispatch: (action: RoomAction) => void;
   canEdit: boolean;
+  /** Who is acting, so the engine can enforce the life rule. */
+  meId: string;
 }) {
   const [tab, setTab] = useState<Tab>("life");
   const [draft, setDraft] = useState("");
@@ -39,7 +42,7 @@ export function PlayerSheet({
   const setLifeTo = () => {
     const value = Number.parseInt(draft, 10);
     if (Number.isFinite(value)) {
-      dispatch({ type: "setLife", playerId: live.id, value });
+      dispatch({ type: "setLife", playerId: live.id, value, byPlayerId: meId });
       setDraft("");
     }
   };
@@ -81,7 +84,7 @@ export function PlayerSheet({
                   <button
                     key={delta}
                     onClick={() =>
-                      dispatch({ type: "adjustLife", playerId: live.id, delta })
+                      dispatch({ type: "adjustLife", playerId: live.id, delta, byPlayerId: meId })
                     }
                     className={`btn py-3.5 text-base ${
                       delta < 0

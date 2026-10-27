@@ -148,7 +148,12 @@ describe("local transport", () => {
     room = (await transport.load("DDDDD"))!;
 
     const me = room.state.players[0].id;
-    const action = { type: "adjustLife", playerId: me, delta: -7 } as const;
+    const action = {
+      type: "adjustLife",
+      playerId: me,
+      delta: -7,
+      byPlayerId: me,
+    } as const;
 
     // Client A wins the race.
     const mine = applyAction(room.state, action);

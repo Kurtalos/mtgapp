@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { applyAction, type RoomAction } from "@/lib/room/reducer";
 import { createRoomState } from "@/lib/room/setup";
 import type { GameMode, RoomState } from "@/lib/types";
-import { COMMANDER_DAMAGE_LETHAL, KING_LIFE, USURPED_KING_LIFE } from "@/lib/room/rules";
+import { COMMANDER_DAMAGE_LETHAL, KING_LIFE } from "@/lib/room/rules";
 import { createRng, rollPlanarFace, shuffle } from "@/lib/room/random";
 import { roleSetFor } from "@/lib/data/roles";
 import { existsSync } from "node:fs";
@@ -107,7 +107,7 @@ describe("commander", () => {
 
   it("eliminates at zero life", () => {
     let state = started("commander");
-    state = act(state, { type: "adjustLife", playerId: "p_1", delta: -40 });
+    state = act(state, { type: "adjustLife", playerId: "p_1", delta: -40, byPlayerId: HOST });
     assert.ok(player(state, "p_1").eliminated);
     assert.match(player(state, "p_1").deathReason ?? "", /life total reached 0/);
   });
@@ -158,14 +158,14 @@ describe("commander", () => {
 
   it("declares the last player standing the winner", () => {
     let state = started("commander", ["Host", "B"]);
-    state = act(state, { type: "adjustLife", playerId: "p_1", delta: -40 });
+    state = act(state, { type: "adjustLife", playerId: "p_1", delta: -40, byPlayerId: HOST });
     assert.equal(state.phase, "finished");
     assert.deepEqual(state.winners, [HOST]);
   });
 
   it("lets the host revive a mis-tapped player", () => {
     let state = started("commander");
-    state = act(state, { type: "adjustLife", playerId: "p_1", delta: -40 });
+    state = act(state, { type: "adjustLife", playerId: "p_1", delta: -40, byPlayerId: HOST });
     state = act(state, { type: "revive", playerId: "p_1" });
     assert.equal(player(state, "p_1").eliminated, false);
     assert.equal(player(state, "p_1").life, 40);
@@ -182,15 +182,15 @@ describe("archenemy", () => {
 
   it("the team wins when the archenemy dies", () => {
     let state = started("archenemy");
-    state = act(state, { type: "adjustLife", playerId: HOST, delta: -40 });
+    state = act(state, { type: "adjustLife", playerId: HOST, delta: -40, byPlayerId: HOST });
     assert.equal(state.phase, "finished");
     assert.deepEqual(new Set(state.winners), new Set(ids(state).filter((id) => id !== HOST)));
   });
 
   it("the archenemy wins when the whole team is out", () => {
     let state = started("archenemy", ["Host", "B", "C"]);
-    state = act(state, { type: "adjustLife", playerId: "p_1", delta: -20 });
-    state = act(state, { type: "adjustLife", playerId: "p_2", delta: -20 });
+    state = act(state, { type: "adjustLife", playerId: "p_1", delta: -20, byPlayerId: HOST });
+    state = act(state, { type: "adjustLife", playerId: "p_2", delta: -20, byPlayerId: HOST });
     assert.equal(state.phase, "finished");
     assert.deepEqual(state.winners, [HOST]);
   });
@@ -283,7 +283,7 @@ describe("kingdoms", () => {
     const kingId = Object.keys(state.kingdom.roles).find(
       (id) => state.kingdom.roles[id] === "king",
     )!;
-    state = act(state, { type: "adjustLife", playerId: kingId, delta: -KING_LIFE });
+    state = act(state, { type: "adjustLife", playerId: kingId, delta: -KING_LIFE, byPlayerId: HOST });
     assert.equal(state.phase, "finished");
     const winners = state.winners ?? [];
     assert.ok(winners.length > 0);
@@ -307,7 +307,9 @@ describe("kingdoms", () => {
   });
 
   it("lets a Usurper take the throne instead of the King dying", () => {
-    // Six players guarantees a Usurper is dealt.
+    // Six players guarantees a Usurper is dealt. This works because any player
+    // may reduce another player's life — the Usurper can swing at the King's
+    // tile and be credited for the kill.
     let state = started("kingdom", ["Host", "B", "C", "D", "E", "F"]);
     const kingId = Object.keys(state.kingdom.roles).find(
       (id) => state.kingdom.roles[id] === "king",
@@ -326,9 +328,29 @@ describe("kingdoms", () => {
     assert.equal(state.kingdom.roles[usurperId], "king");
     assert.equal(state.kingdom.roles[kingId], "usurper");
     assert.equal(player(state, usurperId).life, KING_LIFE);
-    assert.equal(player(state, kingId).life, USURPED_KING_LIFE);
+    assert.equal(player(state, kingId).life, 5);
     assert.equal(player(state, kingId).eliminated, false);
     assert.notEqual(state.phase, "finished");
+  });
+
+  it("does not swap the throne when the King dies to anyone else", () => {
+    let state = started("kingdom", ["Host", "B", "C", "D", "E", "F"]);
+    const kingId = Object.keys(state.kingdom.roles).find(
+      (id) => state.kingdom.roles[id] === "king",
+    )!;
+    const otherId = ids(state).find(
+      (id) => id !== kingId && state.kingdom.roles[id] !== "usurper",
+    )!;
+
+    state = act(state, {
+      type: "adjustLife",
+      playerId: kingId,
+      delta: -KING_LIFE,
+      byPlayerId: otherId,
+    });
+
+    assert.equal(state.kingdom.roles[kingId], "king");
+    assert.notEqual(state.kingdom.roles[otherId], "king");
   });
 
   it("does not usurp when the King dies to someone else", () => {
@@ -353,7 +375,7 @@ describe("purity", () => {
   it("never mutates the state it is given", () => {
     const state = started("commander");
     const snapshot = JSON.parse(JSON.stringify(state));
-    act(state, { type: "adjustLife", playerId: HOST, delta: -5 });
+    act(state, { type: "adjustLife", playerId: HOST, delta: -5, byPlayerId: HOST });
     act(state, { type: "adjustCommanderDamage", sourceId: HOST, targetId: "p_1", delta: 3 });
     assert.deepEqual(state, snapshot);
   });
@@ -361,7 +383,7 @@ describe("purity", () => {
   it("keeps the log bounded", () => {
     let state = started("commander");
     for (let i = 0; i < 300; i++) {
-      state = act(state, { type: "adjustLife", playerId: HOST, delta: 1 });
+      state = act(state, { type: "adjustLife", playerId: HOST, delta: 1, byPlayerId: HOST });
     }
     assert.ok(state.log.length <= 80);
   });
@@ -718,7 +740,7 @@ describe("role visibility", () => {
     const kingId = Object.keys(state.kingdom.roles).find(
       (id) => state.kingdom.roles[id] === "king",
     )!;
-    state = act(state, { type: "adjustLife", playerId: kingId, delta: -KING_LIFE });
+    state = act(state, { type: "adjustLife", playerId: kingId, delta: -KING_LIFE, byPlayerId: HOST });
     assert.equal(state.phase, "finished");
     // The roster needs all five roles, not just the winners.
     assert.equal(Object.keys(state.kingdom.roles).length, state.players.length);
@@ -815,6 +837,7 @@ describe("advanced kingdoms", () => {
       type: "adjustLife",
       playerId: king.id,
       delta: -state.startingLife - 10,
+      byPlayerId: HOST,
     });
 
     assert.equal(state.phase, "finished");
@@ -920,5 +943,131 @@ describe("advanced kingdoms dealing", () => {
       const file = join(process.cwd(), "public", card.image);
       assert.ok(existsSync(file), `missing art for ${card.name}: ${card.image}`);
     }
+  });
+});
+
+describe("who may change a life total", () => {
+  it("lets the host adjust anyone, in either direction", () => {
+    const state = started("commander");
+    const other = ids(state).find((id) => id !== HOST)!;
+    const before = player(state, other).life;
+
+    const down = act(state, {
+      type: "adjustLife",
+      playerId: other,
+      delta: -3,
+      byPlayerId: HOST,
+    });
+    assert.equal(player(down, other).life, before - 3);
+
+    const up = act(state, {
+      type: "adjustLife",
+      playerId: other,
+      delta: 7,
+      byPlayerId: HOST,
+    });
+    assert.equal(player(up, other).life, before + 7);
+  });
+
+  it("lets a player adjust their own, in either direction", () => {
+    const state = started("commander");
+    const before = player(state, "p_1").life;
+
+    const down = act(state, {
+      type: "adjustLife",
+      playerId: "p_1",
+      delta: -1,
+      byPlayerId: "p_1",
+    });
+    assert.equal(player(down, "p_1").life, before - 1);
+
+    const up = act(state, {
+      type: "adjustLife",
+      playerId: "p_1",
+      delta: 4,
+      byPlayerId: "p_1",
+    });
+    assert.equal(player(up, "p_1").life, before + 4);
+  });
+
+  it("lets any player deal damage to another", () => {
+    // Damage is aimed outward, and the table has to be able to credit the
+    // player who actually swung.
+    const state = started("commander");
+    const before = player(state, "p_2").life;
+    const after = act(state, {
+      type: "adjustLife",
+      playerId: "p_2",
+      delta: -5,
+      byPlayerId: "p_1",
+    });
+    assert.equal(player(after, "p_2").life, before - 5);
+  });
+
+  it("refuses to let a player heal another", () => {
+    const state = started("commander");
+    const before = player(state, "p_2").life;
+    const after = act(state, {
+      type: "adjustLife",
+      playerId: "p_2",
+      delta: 5,
+      byPlayerId: "p_1",
+    });
+    assert.equal(player(after, "p_2").life, before);
+    // A refused action is a true no-op, not a redraw.
+    assert.equal(after, state);
+  });
+
+  it("refuses a spectator, who holds an id but no seat", () => {
+    const state = started("commander");
+    const before = player(state, HOST).life;
+    const after = act(state, {
+      type: "adjustLife",
+      playerId: HOST,
+      delta: -5,
+      byPlayerId: "ghost",
+    });
+    assert.equal(player(after, HOST).life, before);
+  });
+
+  it("refuses an action with no actor recorded", () => {
+    const state = started("commander");
+    const before = player(state, "p_1").life;
+    const after = act(state, {
+      type: "adjustLife",
+      playerId: "p_1",
+      delta: -5,
+    });
+    assert.equal(player(after, "p_1").life, before);
+  });
+
+  it("judges a typed-in total by which way it moves", () => {
+    const state = started("commander");
+
+    // Lowering someone else's life is damage, so it is allowed.
+    const damage = act(state, {
+      type: "setLife",
+      playerId: "p_2",
+      value: 7,
+      byPlayerId: "p_1",
+    });
+    assert.equal(player(damage, "p_2").life, 7);
+
+    // Raising it is healing, which is the host's call.
+    const heal = act(damage, {
+      type: "setLife",
+      playerId: "p_2",
+      value: 40,
+      byPlayerId: "p_1",
+    });
+    assert.equal(player(heal, "p_2").life, 7);
+
+    const hostHeal = act(damage, {
+      type: "setLife",
+      playerId: "p_2",
+      value: 40,
+      byPlayerId: HOST,
+    });
+    assert.equal(player(hostHeal, "p_2").life, 40);
   });
 });

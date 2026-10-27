@@ -34,6 +34,7 @@ export function PlayerTile({
   state,
   isMe,
   canEdit,
+  canIncrease,
   isOnline,
   onAdjust,
   onOpen,
@@ -41,7 +42,14 @@ export function PlayerTile({
   player: PlayerState;
   state: RoomState;
   isMe: boolean;
+  /** May this viewer touch the total at all? False for spectators. */
   canEdit: boolean;
+  /**
+   * May they raise it? Only on your own tile, or as the host. Everyone may
+   * *reduce* another player's life — that is damage, and the table has to be
+   * able to point at whoever just got hit.
+   */
+  canIncrease: boolean;
   isOnline: boolean;
   onAdjust: (delta: number) => void;
   onOpen: () => void;
@@ -149,9 +157,15 @@ export function PlayerTile({
         </div>
       </button>
 
-      <div className="grid grid-cols-4 border-t border-white/5">
+      {/* Only the moves this viewer can actually make are rendered, so a
+          damage-only tile has no dead +5 sitting there inviting a mis-tap. */}
+      <div
+        className={`grid border-t border-white/5 ${
+          canEdit && !lethal ? (canIncrease ? "grid-cols-4" : "grid-cols-2") : ""
+        }`}
+      >
         {canEdit && !lethal ? (
-          [-5, -1, 1, 5].map((delta) => (
+          (canIncrease ? [-5, -1, 1, 5] : [-5, -1]).map((delta) => (
             <button
               key={delta}
               onClick={() => onAdjust(delta)}
@@ -159,13 +173,13 @@ export function PlayerTile({
                 delta < 0
                   ? "text-danger/90 hover:bg-danger/10"
                   : "text-mana/90 hover:bg-mana/10"
-              } ${delta === -5 || delta === 1 ? "border-r border-white/5" : ""}`}
+              } ${delta < 0 ? "border-r border-white/5" : ""}`}
             >
               {delta > 0 ? `+${delta}` : delta}
             </button>
           ))
         ) : (
-          <div className="col-span-4 py-2 text-center text-[9px] font-bold uppercase tracking-wider text-slate-600">
+          <div className="col-span-full py-2 text-center text-[9px] font-bold uppercase tracking-wider text-slate-600">
             {lethal ? "Eliminated" : "View only"}
           </div>
         )}

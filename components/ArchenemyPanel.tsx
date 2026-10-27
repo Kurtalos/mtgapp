@@ -8,6 +8,7 @@ import { cardArtFor } from "@/lib/scryfall";
 import { schemeNames, useSchemeArt } from "@/lib/useCardArt";
 import { useContent } from "@/lib/useContent";
 import { Badge, Modal } from "./ui";
+import { CardZoom, ZoomThumb, type ZoomCard } from "./CardZoom";
 
 export function ArchenemyPanel({
   state,
@@ -25,6 +26,7 @@ export function ArchenemyPanel({
   const artMap = useSchemeArt();
   const content = useContent();
   const [deckOpen, setDeckOpen] = useState(false);
+  const [zoom, setZoom] = useState<ZoomCard | null>(null);
   const [nameDraft, setNameDraft] = useState("");
   const [textDraft, setTextDraft] = useState("");
 
@@ -109,27 +111,18 @@ export function ArchenemyPanel({
       {/* The scheme currently in motion */}
       {last && (
         <div className="animate-pop flex gap-3 rounded-2xl border border-violet/30 bg-violet/5 p-2.5">
-          {lastArt ? (
-            /* eslint-disable-next-line @next/next/no-img-element */
-            <img
-              src={last.image ?? lastArt.image}
-              alt={last.name}
-              className="h-24 w-[68px] shrink-0 rounded-lg border border-white/10 object-cover"
-              loading="lazy"
-            />
-          ) : last.image ? (
-            /* eslint-disable-next-line @next/next/no-img-element */
-            <img
-              src={last.image}
-              alt={last.name}
-              className="h-24 w-[68px] shrink-0 rounded-lg border border-white/10 object-cover"
-              loading="lazy"
-            />
-          ) : (
-            <div className="flex h-24 w-[68px] shrink-0 items-center justify-center rounded-lg border border-dashed border-white/15 text-[9px] text-slate-600">
-              scheme
-            </div>
-          )}
+          <ZoomThumb
+            src={last.image ?? lastArt?.image}
+            alt={last.name}
+            onZoom={() =>
+              setZoom({
+                src: last.image ?? lastArt?.image ?? "",
+                title: last.name,
+                eyebrow: "Scheme in motion",
+                body: last.oracleText || lastArt?.oracleText || "",
+              })
+            }
+          />
           <div className="min-w-0 flex-1">
             <div className="text-[9px] font-black uppercase tracking-wider text-violet">
               In motion
@@ -208,6 +201,8 @@ export function ArchenemyPanel({
           {state.archenemy.resolved.length} resolved
         </span>
       </div>
+
+      <CardZoom card={zoom} onClose={() => setZoom(null)} />
 
       <Modal open={deckOpen} onClose={() => setDeckOpen(false)} title="Scheme deck">
         <div className="space-y-3">

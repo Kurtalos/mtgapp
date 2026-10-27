@@ -9,6 +9,7 @@ import { useContent } from "@/lib/useContent";
 import { cardArtFor } from "@/lib/scryfall";
 import { usePlaneArt } from "@/lib/useCardArt";
 import { Badge, Modal } from "./ui";
+import { CardZoom, ZoomThumb, type ZoomCard } from "./CardZoom";
 
 const FACE_LABEL = {
   blank: "Blank",
@@ -35,6 +36,7 @@ export function PlanechasePanel({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [manualOpen, setManualOpen] = useState(false);
+  const [zoom, setZoom] = useState<ZoomCard | null>(null);
 
   const plane = state.planechase.current;
   const art = plane?.image
@@ -89,19 +91,24 @@ export function PlanechasePanel({
         </div>
 
         <div className="flex gap-3 px-3 py-2.5">
-          {art ? (
-            /* eslint-disable-next-line @next/next/no-img-element */
-            <img
-              src={art.image}
-              alt={plane?.name ?? ""}
-              className="h-24 w-[68px] shrink-0 rounded-lg border border-white/10 object-cover shadow-lg"
-              loading="lazy"
-            />
-          ) : (
-            <div className="flex h-24 w-[68px] shrink-0 items-center justify-center rounded-lg border border-dashed border-white/15 bg-black/30 text-[9px] text-slate-600">
-              no art
-            </div>
-          )}
+          <ZoomThumb
+            src={art?.image}
+            alt={plane?.name ?? "Plane"}
+            onZoom={() =>
+              plane &&
+              setZoom({
+                src: art?.image ?? plane.image ?? "",
+                title: plane.name,
+                eyebrow: plane.type,
+                body: [
+                  plane.oracleText || art?.oracleText || "",
+                  plane.chaosText && `Chaos: ${plane.chaosText}`,
+                ]
+                  .filter(Boolean)
+                  .join("\n\n"),
+              })
+            }
+          />
           <div className="min-w-0 flex-1 text-[11px] leading-relaxed text-slate-300">
             {plane?.oracleText ? (
               <p>{plane.oracleText}</p>
@@ -232,6 +239,8 @@ export function PlanechasePanel({
           Planeswalk →
         </button>
       </div>
+
+      <CardZoom card={zoom} onClose={() => setZoom(null)} />
 
       <Modal open={pickerOpen} onClose={() => setPickerOpen(false)} title="Set the plane">
         <input
